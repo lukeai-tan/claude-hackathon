@@ -9,6 +9,7 @@ Create, edit, manipulate, and export documents and presentation decks without re
 **Two standalone editors. One integrated desktop workspace. Zero recurring software fees.**
 
 [Download OpenSuite](https://github.com/lukeai-tan/claude-hackathon/releases/latest) | [Explore the Source Code](https://github.com/lukeai-tan/claude-hackathon)
+| [Demo video link](https://drive.google.com/file/d/1WD3OdeDiE1uflUg-6Z3fHd2iXdkqJevX/view?usp=sharing)
 
 ## 1. The Problem: Professional Document & Design Tools Are Gated Behind Subscriptions
 
