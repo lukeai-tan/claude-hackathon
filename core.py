@@ -46,7 +46,9 @@ class PDF:
         self.doc.close()
 
     def bytes(self):
-        return self.doc.tobytes(garbage=4, deflate=True)
+        # Undo/preview snapshots are transient. Expensive garbage collection and
+        # compression belong to Save as, not every mouse gesture or edit.
+        return self.doc.tobytes(garbage=0, deflate=False)
 
     def restore(self, data):
         self.doc.close()

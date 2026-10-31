@@ -2,7 +2,7 @@
 import re
 import statistics
 import fitz
-from text_tools import font_for
+from text_tools import font_for, removal_rects
 from rich_boxes import without_boxes, apply_redactions
 
 
@@ -138,7 +138,13 @@ def wrap_text(text, font, size, width):
     return output
 
 
-def edit_section(doc, index, section, text, rect=None):
+def remove_section(page, section):
+    for rect in removal_rects(section['chars']):
+        page.add_redact_annot(rect, fill=False, cross_out=False)
+    apply_redactions(page, images=0, graphics=0, text=0)
+
+
+def edit_section(doc, index, section, text, rect=None, current_sections=None):
     page = doc[index]
     original = fitz.Rect(section['rect'])
     target = fitz.Rect(rect or original)
@@ -149,7 +155,7 @@ def edit_section(doc, index, section, text, rect=None):
         raise ValueError('Apply or remove existing redaction annotations first.')
     # The editor holds the original section; reject stale edits without deleting
     # something else if the document was changed through another control.
-    current = text_sections(page)
+    current = text_sections(page) if current_sections is None else current_sections
     if not any(s['rect'] == section['rect'] and s['text'] == section['text'] for s in current):
         raise ValueError('This section changed. Close the editor and select it again.')
     style = section['style']
@@ -187,19 +193,16 @@ def edit_section(doc, index, section, text, rect=None):
         if data:
             alias = 'OPDFBOX' + str(doc.xref_length())
     try:
-        for char in section['chars']:
-            r = fitz.Rect(char['bbox'])
-            if r.width > 0.2 and r.height > 0.2:
-                r += (0.05, 0.05, -0.05, -0.05)
-                page.add_redact_annot(r, fill=False, cross_out=False)
-        apply_redactions(page, images=0, graphics=0, text=0)
+        remove_section(page, section)
         if placements:
             if data:
                 page.insert_font(fontname=alias, fontbuffer=data)
+            shape = page.new_shape()
             for point, row in placements:
-                page.insert_text(point, row, fontname=alias, fontsize=style['size'],
+                shape.insert_text(point, row, fontname=alias, fontsize=style['size'],
                                  color=fitz.sRGB_to_pdf(style['color']),
                                  fill_opacity=style.get('alpha', 255) / 255)
+            shape.commit()
     except Exception:
         # Callers retain full document snapshots for rollback; never hide errors.
         raise

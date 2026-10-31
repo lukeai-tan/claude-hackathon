@@ -1,11 +1,13 @@
 """Live, selectable styled text inside movable PDF boxes."""
 from copy import deepcopy
 import io
+import time
 import tkinter as tk
 from tkinter import ttk, colorchooser, font as tkfont
 import fitz
 from PIL import Image, ImageTk
 from rich_boxes import DEFAULT_STYLE, put_box, delete_box, without_boxes
+from render_tools import pixmap_image
 
 
 class RichBoxEditor:
@@ -15,18 +17,23 @@ class RichBoxEditor:
         self.original = deepcopy(box)
         self.rect = fitz.Rect(box['rect'])
         self.closed = False
+        self.pending_position = None
+        self.last_size = None
+        self.last_align = None
+        self.last_typing_checkpoint = 0
         self.styles, self.fonts = {}, []
         self.default = dict(DEFAULT_STYLE, **box.get('default', {}))
         self.drag = None
         self.local_history, self.local_future = [], []
         page = app.pdf.doc[self.index]
+        self.bounds = fitz.Rect(page.rect)
         if page.rotation:
             raise ValueError('Rotate the page upright before editing text boxes.')
         # Show the real page underneath while the box is being moved. Restore
         # its drawing stream immediately; the live editor alone is temporary.
         with without_boxes(page, {box['id']}):
             pix = page.get_pixmap(matrix=fitz.Matrix(app.zoom, app.zoom), alpha=False)
-        self.backdrop = Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB')
+        self.backdrop = pixmap_image(pix)
         app.photo = ImageTk.PhotoImage(self.backdrop)
         app.canvas.delete('all')
         app.canvas.create_image(20, 20, anchor='nw', image=app.photo)
@@ -76,6 +83,8 @@ class RichBoxEditor:
         self.edges = [app.canvas.create_rectangle(0, 0, 0, 0, fill='#2563eb', outline='', tags='inline') for _ in range(4)]
         self.handle = app.canvas.create_rectangle(0, 0, 0, 0, fill='#2563eb', outline='white', tags='inline')
         self.interactive_items = set(self.edges + [self.handle])
+        for item in self.interactive_items:
+            app.canvas.tag_bind(item, '<ButtonRelease-1>', self.flush_position)
         for edge in self.edges:
             app.canvas.tag_bind(edge, '<ButtonPress-1>', self.start_move)
             app.canvas.tag_bind(edge, '<B1-Motion>', self.move)
@@ -101,6 +110,8 @@ class RichBoxEditor:
         self.widget.bind('<<Cut>>', lambda e: self.checkpoint(), add='+')
         self.widget.bind('<<Modified>>', self.modified)
         self.widget.edit_modified(False)
+        self.toolbar.update_idletasks()  # once, not for every pointer event
+        self.toolbar_size = (self.toolbar.winfo_reqwidth(), self.toolbar.winfo_reqheight())
         self.position()
         self.widget.focus_set()
         self.widget.mark_set('insert', 'end-1c')
@@ -133,15 +144,30 @@ class RichBoxEditor:
     def value(self):
         result = deepcopy(self.box)
         result['rect'], result['runs'], result['default'] = list(self.rect), [], deepcopy(self.default)
-        for i, char in enumerate(self.widget.get('1.0', 'end-1c')):
-            style = self.style_at(f'1.0+{i}c')
+        active = set()
+        priority = {tag: n for n, tag in enumerate(self.widget.tag_names())}
+        for kind, value, index in self.widget.dump('1.0', 'end-1c', text=True, tag=True):
+            if kind == 'tagon':
+                active.add(value)
+                continue
+            if kind == 'tagoff':
+                active.discard(value)
+                continue
+            if kind != 'text':
+                continue
+            tags = [t for t in active if t in self.styles]
+            style = deepcopy(self.styles[max(tags, key=lambda t: priority[t])] if tags else self.default)
             if result['runs'] and result['runs'][-1]['style'] == style:
-                result['runs'][-1]['text'] += char
+                result['runs'][-1]['text'] += value
             else:
-                result['runs'].append(dict(text=char, style=style))
+                result['runs'].append(dict(text=value, style=style))
         return result
 
-    def checkpoint(self):
+    def checkpoint(self, typing=False):
+        now = time.monotonic()
+        if typing and now - self.last_typing_checkpoint < .35:
+            return
+        self.last_typing_checkpoint = now if typing else 0
         value = self.value()
         if not self.local_history or self.local_history[-1] != value:
             self.local_history.append(value)
@@ -150,7 +176,7 @@ class RichBoxEditor:
 
     def before_key(self, event):
         if not event.state & 4 and (event.char or event.keysym in ('BackSpace', 'Delete', 'Return', 'Tab')):
-            self.checkpoint()
+            self.checkpoint(typing=True)
 
     def restore(self, box):
         self.box = deepcopy(box)
@@ -165,12 +191,14 @@ class RichBoxEditor:
         self.position()
 
     def local_undo(self):
+        self.last_typing_checkpoint = 0
         if self.local_history:
             self.local_future.append(self.value())
             self.restore(self.local_history.pop())
         return 'break'
 
     def local_redo(self):
+        self.last_typing_checkpoint = 0
         if self.local_future:
             self.local_history.append(self.value())
             self.restore(self.local_future.pop())
@@ -181,13 +209,14 @@ class RichBoxEditor:
         selection = self.widget.tag_ranges('sel')
         start, end = selection if selection else ('1.0', 'end-1c')
         start, end = self.widget.index(start), self.widget.index(end)
-        count = self.widget.count(start, end, 'chars')
-        for i in range(count[0] if count else 0):
-            index = self.widget.index(f'{start}+{i}c')
-            style = dict(self.style_at(index), **change)
-            for tag in self.styles:
-                self.widget.tag_remove(tag, index, f'{index}+1c')
-            self.widget.tag_add(self.style_tag(style), index, f'{index}+1c')
+        # dump(text=True) alone need not split at tag transitions. Include tag
+        # events to obtain precisely the attributed text runs in one Tk call.
+        segments = [(index, self.widget.index(f'{index}+{len(value)}c'), dict(self.style_at(index), **change))
+                    for kind, value, index in self.widget.dump(start, end, text=True, tag=True) if kind == 'text']
+        for tag in self.styles:
+            self.widget.tag_remove(tag, start, end)
+        for begin, finish, style in segments:
+            self.widget.tag_add(self.style_tag(style), begin, finish)
         if not selection:
             self.default.update(change)
             self.widget.configure(font=self.make_font(self.default), foreground=self.default['color'])
@@ -229,17 +258,23 @@ class RichBoxEditor:
         c, z = self.app.canvas, self.app.zoom
         x0, y0, x1, y1 = [v * z + 20 for v in self.rect]
         c.coords(self.window, x0, y0)
-        c.itemconfigure(self.window, width=max(12, x1 - x0), height=max(12, y1 - y0))
-        self.widget.configure(padx=max(1, round(4 * z)), pady=max(1, round(4 * z)))
+        size = (max(12, x1 - x0), max(12, y1 - y0))
+        if size != self.last_size:
+            c.itemconfigure(self.window, width=size[0], height=size[1])
+            self.widget.configure(padx=max(1, round(4 * z)), pady=max(1, round(4 * z)))
+            self.last_size = size
         # Tk Text has no alpha background. Sample the page beneath an unfilled
         # box for its live editor; the committed PDF remains truly transparent.
         sample_x = max(0, min(self.app.photo.width() - 1, round(self.rect.x0 * z)))
         sample_y = max(0, min(self.app.photo.height() - 1, round(self.rect.y0 * z)))
         color = self.backdrop.getpixel((sample_x, sample_y))
         background = self.box['fill'] or ('#%02x%02x%02x' % color)
-        self.widget.configure(background=background)
-        self.widget.tag_configure('alignment', justify=self.box['align'])
-        self.widget.tag_add('alignment', '1.0', 'end')
+        if self.widget.cget('background') != background:
+            self.widget.configure(background=background)
+        if self.last_align != self.box['align']:
+            self.widget.tag_configure('alignment', justify=self.box['align'])
+            self.widget.tag_add('alignment', '1.0', 'end')
+            self.last_align = self.box['align']
         coords = [(x0 - 3, y0 - 3, x1 + 3, y0), (x0 - 3, y1, x1 + 3, y1 + 3),
                   (x0 - 3, y0, x0, y1), (x1, y0, x1 + 3, y1)]
         for item, values in zip(self.edges, coords):
@@ -247,15 +282,27 @@ class RichBoxEditor:
             c.tag_raise(item)
         c.coords(self.handle, x1 - 5, y1 - 5, x1 + 6, y1 + 6)
         c.tag_raise(self.handle)
-        self.toolbar.update_idletasks()
         left = c.canvasx(0)
-        tx = max(left, min(x0, left + c.winfo_width() - self.toolbar.winfo_reqwidth() - 8))
-        ty = max(c.canvasy(0), y0 - self.toolbar.winfo_reqheight() - 12)
+        tw, th = self.toolbar_size
+        tx = max(left, min(x0, left + c.winfo_width() - tw - 8))
+        ty = max(c.canvasy(0), y0 - th - 12)
         # At the top of a page put the toolbar below, leaving text accessible.
-        if ty + self.toolbar.winfo_reqheight() > y0 - 3:
+        if ty + th > y0 - 3:
             ty = y1 + 14
         c.coords(self.toolbar_id, tx, ty)
         c.tag_raise(self.toolbar_id)
+
+    def request_position(self):
+        if self.pending_position is None:
+            self.pending_position = self.app.after(16, self.flush_position)
+
+    def flush_position(self, event=None):
+        if self.pending_position is not None:
+            self.app.after_cancel(self.pending_position)
+            self.pending_position = None
+        if not self.closed:
+            self.position()
+        return 'break'
 
     def start_move(self, event):
         self.checkpoint()
@@ -266,11 +313,11 @@ class RichBoxEditor:
         if not self.drag:
             return 'break'
         x, y, original = self.drag
-        bounds = self.app.pdf.doc[self.index].rect
+        bounds = self.bounds
         dx = max(-original.x0, min(bounds.width - original.x1, (self.app.canvas.canvasx(event.x) - x) / self.app.zoom))
         dy = max(-original.y0, min(bounds.height - original.y1, (self.app.canvas.canvasy(event.y) - y) / self.app.zoom))
         self.rect = original + (dx, dy, dx, dy)
-        self.position()
+        self.request_position()
         return 'break'
 
     def start_resize(self, event):
@@ -279,10 +326,10 @@ class RichBoxEditor:
 
     def resize(self, event):
         c, z = self.app.canvas, self.app.zoom
-        bounds = self.app.pdf.doc[self.index].rect
+        bounds = self.bounds
         self.rect.x1 = max(self.rect.x0 + 24, min(bounds.width, (c.canvasx(event.x) - 20) / z))
         self.rect.y1 = max(self.rect.y0 + 24, min(bounds.height, (c.canvasy(event.y) - 20) / z))
-        self.position()
+        self.request_position()
         return 'break'
 
     def modified(self, event=None):
@@ -310,16 +357,19 @@ class RichBoxEditor:
         self.app.redo_history.clear()
         self.app.dirty = True
         self.close()
-        self.app.refresh()
+        self.app.refresh(dirty_pages={self.index})
         self.app.status.set('Text box saved. Click it in Edit text boxes to move, resize or format it again.')
 
     def remove(self):
         identifier = self.box['id']
         self.close()
-        self.app.change(lambda: delete_box(self.app.pdf.doc, self.index, identifier), 'Text box deleted. Undo restores it.')
+        self.app.change(lambda: delete_box(self.app.pdf.doc, self.index, identifier), 'Text box deleted. Undo restores it.', dirty_pages={self.index})
 
     def close(self):
         self.closed = True
+        if self.pending_position is not None:
+            self.app.after_cancel(self.pending_position)
+            self.pending_position = None
         self.app.canvas.delete('inline')
         self.app.canvas.configure(cursor='')
         self.widget.destroy()

@@ -6,8 +6,9 @@ import tkinter as tk
 from tkinter import ttk, font as tkfont
 import fitz
 from PIL import Image, ImageTk
-from box_tools import edit_section
+from box_tools import edit_section, remove_section
 from text_tools import font_for
+from render_tools import pixmap_image
 
 
 class InlineEditor:
@@ -19,6 +20,9 @@ class InlineEditor:
         self.closed = False
         self.widget = None
         self.after_id = None
+        self.pending_position = None
+        self.last_size = None
+        self.bounds = fitz.Rect(app.pdf.doc[self.index].rect)
         style = section['style']
         page = app.pdf.doc[self.index]
         if page.rotation:
@@ -44,15 +48,16 @@ class InlineEditor:
         # Match the dominant local background while editing. Export retains the
         # actual original graphics/image background, including gradients.
         pix = page.get_pixmap(clip=self.rect, alpha=False)
-        img = Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB')
+        img = pixmap_image(pix)
         colors = img.getcolors(img.width * img.height)
         background = '#%02x%02x%02x' % max(colors, key=lambda x: x[0])[1] if colors else '#ffffff'
         # A temporary copy supplies a backdrop without this section, so moving
         # it does not leave a second copy visible at the old position.
-        with fitz.open(stream=app.pdf.bytes(), filetype='pdf') as preview:
-            edit_section(preview, self.index, section, '')
-            pix = preview[self.index].get_pixmap(matrix=fitz.Matrix(app.zoom, app.zoom), alpha=False)
-        app.photo = ImageTk.PhotoImage(Image.open(io.BytesIO(pix.tobytes('png'))))
+        with fitz.open() as preview:
+            preview.insert_pdf(app.pdf.doc, from_page=self.index, to_page=self.index)
+            remove_section(preview[0], section)
+            pix = preview[0].get_pixmap(matrix=fitz.Matrix(app.zoom, app.zoom), alpha=False)
+        app.photo = ImageTk.PhotoImage(pixmap_image(pix))
         app.canvas.delete('all')
         app.canvas.create_image(20, 20, anchor='nw', image=app.photo)
         self.widget = tk.Text(app.canvas, font=self.font, foreground=f'#{style["color"]:06x}',
@@ -79,11 +84,16 @@ class InlineEditor:
         app.canvas.tag_bind(self.handle, '<B1-Motion>', self.resize)
         app.canvas.tag_bind(self.handle, '<ButtonPress-1>', lambda e: 'break')
         self.interactive_items = set(self.edges + [self.handle])
+        for item in self.interactive_items:
+            app.canvas.tag_bind(item, '<ButtonRelease-1>', self.flush_position)
         for edge in self.edges:
             app.canvas.tag_bind(edge, '<ButtonPress-1>', self.start_move)
             app.canvas.tag_bind(edge, '<B1-Motion>', self.move)
             app.canvas.tag_bind(edge, '<Enter>', lambda e: app.canvas.configure(cursor='fleur'))
             app.canvas.tag_bind(edge, '<Leave>', lambda e: app.canvas.configure(cursor=''))
+        self.linespace = self.font.metrics('linespace')
+        self.toolbar.update_idletasks()  # once on creation, never during a drag
+        self.toolbar_size = (self.toolbar.winfo_reqwidth(), self.toolbar.winfo_reqheight())
         self.position()
         self.widget.bind('<Control-Return>', lambda e: self.key_commit())
         self.widget.bind('<Escape>', lambda e: self.key_cancel())
@@ -104,10 +114,12 @@ class InlineEditor:
         z = self.app.zoom
         canvas = self.app.canvas
         width = max(35, self.rect.width * z + 8)
-        height = max(self.font.metrics('linespace') + 6, self.rect.height * z + 6)
+        height = max(self.linespace + 6, self.rect.height * z + 6)
         x0, y0 = self.rect.x0 * z + 18, self.rect.y0 * z + 18
         canvas.coords(self.window, x0, y0)
-        canvas.itemconfigure(self.window, width=width, height=height)
+        if self.last_size != (width, height):
+            canvas.itemconfigure(self.window, width=width, height=height)
+            self.last_size = (width, height)
         for item, coords in zip(self.edges, [(x0-3, y0-3, x0+width+3, y0),
                                              (x0-3, y0+height, x0+width+3, y0+height+3),
                                              (x0-3, y0, x0, y0+height),
@@ -117,39 +129,49 @@ class InlineEditor:
         x, y = self.rect.x1 * z + 24, self.rect.y1 * z + 24
         self.app.canvas.coords(self.handle, x - 5, y - 5, x + 5, y + 5)
         self.app.canvas.tag_raise(self.handle)
-        self.toolbar.update_idletasks()
         left, top = canvas.canvasx(0), canvas.canvasy(0)
-        tx = max(left, min(x0, left + canvas.winfo_width() - self.toolbar.winfo_reqwidth() - 8))
-        ty = y0 - self.toolbar.winfo_reqheight() - 12
+        tw, th = self.toolbar_size
+        tx = max(left, min(x0, left + canvas.winfo_width() - tw - 8))
+        ty = y0 - th - 12
         if ty < top:
             ty = y0 + height + 14
         canvas.coords(self.toolbar_id, tx, ty)
         canvas.tag_raise(self.toolbar_id)
 
+    def request_position(self):
+        if self.pending_position is None:
+            self.pending_position = self.app.after(16, self.flush_position)
+
+    def flush_position(self, event=None):
+        if self.pending_position is not None:
+            self.app.after_cancel(self.pending_position)
+            self.pending_position = None
+        if not self.closed:
+            self.position()
+        return 'break'
+
     def start_move(self, event):
         self.drag = (self.app.canvas.canvasx(event.x), self.app.canvas.canvasy(event.y), fitz.Rect(self.rect))
+        self.app.status.set('Moving existing PDF text. Click Apply to keep this position; Escape cancels.')
         return 'break'
 
     def move(self, event):
         if not self.drag:
             return 'break'
         x, y, original = self.drag
-        bounds = self.app.pdf.doc[self.index].rect
+        bounds = self.bounds
         dx = max(-original.x0, min(bounds.width - original.x1, (self.app.canvas.canvasx(event.x) - x) / self.app.zoom))
         dy = max(-original.y0, min(bounds.height - original.y1, (self.app.canvas.canvasy(event.y) - y) / self.app.zoom))
         self.rect = original + (dx, dy, dx, dy)
-        self.position()
-        self.app.status.set('Moving existing PDF text. Click Apply to keep this position; Escape cancels.')
+        self.request_position()
         return 'break'
 
     def resize(self, event):
-        page = self.app.pdf.doc[self.index]
         x = (self.app.canvas.canvasx(event.x) - 24) / self.app.zoom
         y = (self.app.canvas.canvasy(event.y) - 24) / self.app.zoom
-        self.rect.x1 = max(self.rect.x0 + 20, min(page.rect.width, x))
-        self.rect.y1 = max(self.rect.y0 + 12, min(page.rect.height, y))
-        self.position()
-        self.app.status.set(f'Text box: {self.rect.width:.0f} × {self.rect.height:.0f} pt. Text wraps live as you resize.')
+        self.rect.x1 = max(self.rect.x0 + 20, min(self.bounds.width, x))
+        self.rect.y1 = max(self.rect.y0 + 12, min(self.bounds.height, y))
+        self.request_position()
         return 'break'
 
     def modified(self, event=None):
@@ -170,7 +192,8 @@ class InlineEditor:
             return
         before = app.pdf.bytes()
         try:
-            edit_section(app.pdf.doc, self.index, self.section, text, self.rect)
+            edit_section(app.pdf.doc, self.index, self.section, text, self.rect,
+                         current_sections=app.native_sections())
         except Exception:
             app.pdf.restore(before)
             # Keep the live editor and typed text so the user can correct it.
@@ -180,7 +203,7 @@ class InlineEditor:
         app.redo_history.clear()
         app.dirty = True
         self.close()
-        app.refresh()
+        app.refresh(dirty_pages={self.index})
         app.status.set('Text box updated with its original PDF font and background. Save as to export.')
 
     def cancel(self):
@@ -192,6 +215,9 @@ class InlineEditor:
         if self.closed:
             return
         self.closed = True
+        if self.pending_position is not None:
+            self.app.after_cancel(self.pending_position)
+            self.pending_position = None
         self.app.canvas.delete('inline')
         self.app.canvas.configure(cursor='')
         self.widget.destroy()

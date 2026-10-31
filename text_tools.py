@@ -1,6 +1,7 @@
 """Character-level selection and style-preserving replacement."""
 import io
 import re
+import hashlib
 import fitz
 from rich_boxes import apply_redactions
 
@@ -19,12 +20,13 @@ def lines(page):
     return result
 
 
-def find_matches(doc, query):
+def find_matches(doc, query, page_indices=None, line_provider=None):
     if not query:
         return []
     matches = []
-    for index, page in enumerate(doc):
-        for line in lines(page):
+    for index in (range(len(doc)) if page_indices is None else page_indices):
+        page = doc[index]
+        for line in (line_provider(index) if line_provider else lines(page)):
             text = ''.join(c['c'] for c in line['chars'])
             for found in re.finditer(re.escape(query), text, re.IGNORECASE):
                 chars = line['chars'][found.start():found.end()]
@@ -40,9 +42,9 @@ def find_matches(doc, query):
     return matches
 
 
-def select_text(page, start, end):
+def select_text(page, start, end, all_lines=None):
     """Return quads for a reading-order range between two page points."""
-    all_lines = lines(page)
+    all_lines = lines(page) if all_lines is None else all_lines
     flattened = [(i, c) for i, line in enumerate(all_lines) for c in line['chars']]
     if not flattened:
         return [], ''
@@ -83,6 +85,13 @@ def font_for(doc, page, style, text):
             continue
         data = doc.extract_font(xref)[3]
         if data:
+            cache = getattr(doc, '_opdf_fonts', None)
+            if cache is None:
+                cache = doc._opdf_fonts = {}
+            key = (plain(name), hashlib.sha256(data).digest())
+            cached = cache.get(key)
+            if cached and all(cached[0].has_glyph(ord(c)) for c in set(text)):
+                return cached
             font = fitz.Font(fontbuffer=data)
             if not all(font.has_glyph(ord(c)) for c in text):
                 # ReportLab subsets often carry only a Mac cmap. PDF text traces
@@ -91,11 +100,12 @@ def font_for(doc, page, style, text):
                 from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
                 tt = TTFont(io.BytesIO(data))
                 mapping = dict(tt.getBestCmap() or {})
+                glyph_count = len(tt.getGlyphOrder())
                 for source_page in doc:
                     for trace in source_page.get_texttrace():
                         if plain(trace['font']) == plain(name):
                             for unicode, gid, *_ in trace['chars']:
-                                if 0 <= unicode <= 0xFFFF and 0 < gid < len(tt.getGlyphOrder()):
+                                if 0 <= unicode <= 0xFFFF and 0 < gid < glyph_count:
                                     mapping[unicode] = tt.getGlyphName(gid)
                 # Some PDF subsets have a Macintosh-only cmap. Recover its
                 # ASCII glyphs after verifying it agrees with observed PDF text.
@@ -120,7 +130,10 @@ def font_for(doc, page, style, text):
             if missing:
                 raise ValueError('The embedded font lacks these replacement characters: ' + ''.join(missing) +
                                  '. Choose text supported by the font. The document was not changed.')
-            return font, data, None
+            cache[key] = (font, data, None)
+            if len(cache) > 32:
+                del cache[next(iter(cache))]
+            return cache[key]
         aliases = {'helvetica': 'helv', 'helvetica-bold': 'hebo', 'helvetica-oblique': 'heit',
                    'helvetica-boldoblique': 'hebi', 'times-roman': 'tiro', 'times-bold': 'tibo',
                    'times-italic': 'tiit', 'times-bolditalic': 'tibi', 'courier': 'cour',
@@ -131,6 +144,26 @@ def font_for(doc, page, style, text):
             if all(ord(c) <= 255 and font.has_glyph(ord(c)) for c in text):
                 return font, None, alias
     raise ValueError(f'Cannot safely reuse font {name}. No font substitution was made.')
+
+
+def removal_rects(chars):
+    """Merge adjacent glyph bounds on one baseline, never across gaps/rows.
+
+    Hundreds of per-character redaction annotations make MuPDF's annotation
+    lookup quadratic. Contiguous line segments remove the same glyphs with
+    usually one annotation per line.
+    """
+    segments = []
+    for char in sorted(chars, key=lambda c: (round(c['origin'][1], 1), c['bbox'][0])):
+        rect = fitz.Rect(char['bbox'])
+        if rect.width <= .2 or rect.height <= .2:
+            continue
+        baseline = char['origin'][1]
+        if segments and abs(segments[-1][0] - baseline) < .1 and rect.x0 <= segments[-1][1].x1 + .1:
+            segments[-1][1] |= rect
+        else:
+            segments.append([baseline, rect])
+    return [rect + (.05, .05, -.05, -.05) for _, rect in segments]
 
 
 def replace_match(doc, match, text):
@@ -153,11 +186,8 @@ def replace_match(doc, match, text):
         if data:
             alias = 'OPDF' + str(doc.xref_length())
     # Transparent redaction removes only text; keep image/vector backgrounds.
-    for char in match['chars']:
-        r = fitz.Rect(char['bbox'])
-        if r.width > 0.2 and r.height > 0.2:
-            r += (0.05, 0.05, -0.05, -0.05)
-            page.add_redact_annot(r, fill=False, cross_out=False)
+    for r in removal_rects(match['chars']):
+        page.add_redact_annot(r, fill=False, cross_out=False)
     apply_redactions(page, images=0, graphics=0, text=0)
     if text:
         if data:

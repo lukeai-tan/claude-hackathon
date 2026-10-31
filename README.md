@@ -126,6 +126,26 @@ existing digital signatures. OCR and conversion quality depend on the input.
 
 ## Development
 
+### Editing performance
+
+Pointer movement updates only the Tk overlay, coalesced into 16 ms frames.
+PDF serialization, text extraction and PDF rasterization never run in the drag
+handler. Native editor previews copy just the current page; text removal groups
+contiguous glyphs into line segments rather than creating an annotation for every
+character. Text geometry, embedded fonts and the last two page rasters are cached.
+Only the changed page is invalidated after an edit; thumbnails render on demand
+for visible rows and pause while a text editor is active. Pixel buffers transfer
+directly to the display without PNG compression. Added-box formatting and PDF
+output operate on styled runs, rather than making a Tk/PDF call for every letter.
+
+`python benchmarks/editor.py [optional.pdf ...]` prints engine timings. A local
+1,151-character paragraph-removal benchmark dropped from 10.3 seconds to about
+33–45 ms; this measures that operation, not total application latency or all PDFs.
+Windows source and packaged smoke tests report editor-open, drag-frame, apply,
+and styled-text snapshot timings. They also reject PDF work in the drag path and
+unrelated page rendering after a single-page edit. Export still performs full PDF
+compression/cleanup; temporary undo snapshots avoid that work.
+
 Python 3.12 recommended:
 
 ```sh

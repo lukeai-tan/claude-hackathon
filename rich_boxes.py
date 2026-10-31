@@ -79,26 +79,31 @@ def layout(box):
         if not 4 <= size <= 200:
             raise ValueError('Font size must be between 4 and 200 points.')
         name = font_name(style)
-        font = fonts.setdefault(name, fitz.Font(name))
+        if name not in fonts:
+            fonts[name] = fitz.Font(name)
+        font = fonts[name]
         for char in run['text'].replace('\r\n', '\n').replace('\r', '\n').replace('\t', '    '):
             if char != '\n' and (ord(char) > 255 or not font.has_glyph(ord(char))):
                 raise ValueError('Added text boxes currently support Latin characters. Use a supported character.')
             chars.append(dict(char=char, style=style, font=name,
                               width=font.text_length(char, fontsize=size) if char != '\n' else 0,
                               ascent=font.ascender * size, descent=-font.descender * size))
-    rows, row = [], []
+    rows, row, used = [], [], 0.
     for char in chars:
         if char['char'] == '\n':
             rows.append((row, char))
             row = []
+            used = 0.
             continue
         if char['width'] > width + .01:
             raise ValueError('The box is narrower than a letter. Widen it or reduce the font size.')
-        while row and sum(c['width'] for c in row) + char['width'] > width + .01:
+        while row and used + char['width'] > width + .01:
             split = next((i + 1 for i in range(len(row) - 1, -1, -1) if row[i]['char'].isspace()), len(row))
             rows.append((row[:split], row[0]))
             row = row[split:]
+            used = sum(c['width'] for c in row)
         row.append(char)
+        used += char['width']
     if row or (chars and chars[-1]['char'] == '\n'):
         rows.append((row, chars[-1]))
     y, placed = 4., []
@@ -129,13 +134,23 @@ def put_box(doc, index, box):
         # Even an empty transparent box needs its own drawing stream.
         canvas.draw_rect(canvas.rect + (.5, .5, -.5, -.5), color=rgb(box['border']),
                          fill=rgb(box['fill']), width=1)
+        runs = []
         for x, y, char in placed:
+            if runs and runs[-1]['style'] == char['style'] and runs[-1]['y'] == y:
+                runs[-1]['text'] += char['char']
+                runs[-1]['width'] += char['width']
+            else:
+                runs.append(dict(x=x, y=y, text=char['char'], style=char['style'], font=char['font'], width=char['width']))
+        shape = canvas.new_shape()
+        for run in runs:
+            x, y, char = run['x'], run['y'], run
             s = char['style']
-            canvas.insert_text((x, y), char['char'], fontname=char['font'],
+            shape.insert_text((x, y), char['text'], fontname=char['font'],
                                fontsize=s['size'], color=rgb(s['color']))
             if s.get('underline'):
-                canvas.draw_line((x, y + s['size'] * .1), (x + char['width'], y + s['size'] * .1),
-                                 color=rgb(s['color']), width=max(.5, s['size'] / 18))
+                shape.draw_line((x, y + s['size'] * .1), (x + char['width'], y + s['size'] * .1))
+                shape.finish(color=rgb(s['color']), width=max(.5, s['size'] / 18))
+        shape.commit()
         page.show_pdf_page(rect, source, 0)
     new_refs = [x for x in page.get_contents() if x not in before]
     if len(new_refs) != 1:

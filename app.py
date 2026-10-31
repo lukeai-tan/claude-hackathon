@@ -30,13 +30,14 @@ elif sys.stdout is None or sys.stderr is None:
 import fitz
 from PIL import Image, ImageTk
 from core import PDF, page_numbers, images_to_pdf, office_to_pdf
-from text_tools import find_matches, replace_match, select_text
+from text_tools import find_matches, replace_match, select_text, lines
 from box_tools import text_sections
 from inline_editor import InlineEditor
 from rich_editor import RichBoxEditor
 from rich_boxes import boxes, new_box, move_page, apply_redactions
 from thumbnails import Thumbnails
 from pen_tools import add_stroke
+from render_tools import PageCache, pixmap_image
 
 
 class App(tk.Tk):
@@ -54,6 +55,7 @@ class App(tk.Tk):
         self.dirty = False
         self.selection = None
         self.inline = None
+        self.view_cache = PageCache()
         self.context_frame = None
         self.selected_text = ''
         self.search_query = ''
@@ -124,7 +126,7 @@ class App(tk.Tk):
         body.pack(fill='both', expand=True, padx=12, pady=10)
         side = ttk.Frame(body, width=180)
         ttk.Label(side, text='PAGES · drag to reorder', padding=8).pack(fill='x')
-        self.pages = Thumbnails(side, self.go, self.reorder_page)
+        self.pages = Thumbnails(side, self.go, self.reorder_page, lambda: self.inline is not None)
         self.pages.pack(fill='both', expand=True)
         body.add(side, weight=0)
         viewer = ttk.Frame(body)
@@ -236,7 +238,7 @@ class App(tk.Tk):
             self.dirty = False
             self.status.set(f'Saved {path}. Export is unencrypted; use Password export to encrypt.')
 
-    def change(self, operation, message='Updated document. Save as to export.'):
+    def change(self, operation, message='Updated document. Save as to export.', dirty_pages=None):
         self.require()
         before = self.pdf.bytes()
         try:
@@ -249,7 +251,7 @@ class App(tk.Tk):
         self.history = self.history[-8:]
         self.redo_history.clear()
         self.dirty = True
-        self.refresh()
+        self.refresh(dirty_pages=dirty_pages)
         self.status.set(message)
 
     def undo(self):
@@ -267,10 +269,27 @@ class App(tk.Tk):
             self.dirty = True
             self.refresh()
 
-    def refresh(self):
+    def native_sections(self):
+        return self.view_cache.get(self.pdf.doc, 'sections', self.index,
+                                   lambda: text_sections(self.pdf.doc[self.index]))
+
+    def text_lines(self, index):
+        return self.view_cache.get(self.pdf.doc, 'lines', index, lambda: lines(self.pdf.doc[index]))
+
+    def find_cached(self, query, page_indices=None):
+        return find_matches(self.pdf.doc, query, page_indices=page_indices, line_provider=self.text_lines)
+
+    def refresh(self, dirty_pages=None):
         self.index = max(0, min(self.index, len(self.pdf.doc) - 1))
-        self.pages.refresh(self.pdf, self.index)
-        self.search_matches = find_matches(self.pdf.doc, self.search_query)
+        self.view_cache.sync(self.pdf.doc)
+        self.view_cache.invalidate(dirty_pages)
+        self.pages.refresh(self.pdf, self.index, dirty_pages=dirty_pages)
+        if dirty_pages is None:
+            self.search_matches = self.find_cached(self.search_query)
+        else:
+            matches = [m for m in self.search_matches if m['page'] not in dirty_pages]
+            matches.extend(self.find_cached(self.search_query, sorted(dirty_pages)))
+            self.search_matches = sorted(matches, key=lambda m: (m['page'], m['rect'][1], m['rect'][0]))
         self.search_position = min(self.search_position, max(0, len(self.search_matches) - 1))
         self.render()
 
@@ -280,11 +299,13 @@ class App(tk.Tk):
         self.cancel_stroke()
         self.canvas.configure(cursor='crosshair' if self.selection_mode.get() in ('pen', 'addbox') else '')
         self.hide_context()
-        pix = self.pdf.doc[self.index].get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
-        self.photo = ImageTk.PhotoImage(Image.open(io.BytesIO(pix.tobytes('png'))))
+        def raster():
+            pix = self.pdf.doc[self.index].get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
+            return ImageTk.PhotoImage(pixmap_image(pix))
+        self.photo = self.view_cache.get(self.pdf.doc, 'image', self.index, raster, round(self.zoom, 6))
         self.canvas.delete('all')
         self.canvas.create_image(20, 20, anchor='nw', image=self.photo)
-        self.canvas.configure(scrollregion=(0, 0, pix.width + 40, pix.height + 40))
+        self.canvas.configure(scrollregion=(0, 0, self.photo.width() + 40, self.photo.height() + 40))
         self.selection = None
         self.text_quads = []
         self.page_label.set(f'Page {self.index + 1} of {len(self.pdf.doc)} · {round(self.zoom * 100)}%')
@@ -297,7 +318,7 @@ class App(tk.Tk):
                                          fill='#fbbf24', stipple='gray50', outline='#ea580c' if n == self.search_position else '',
                                          width=2, tags='search-result')
         if self.selection_mode.get() == 'edit':
-            for section in text_sections(self.pdf.doc[self.index]) + boxes(self.pdf.doc[self.index]):
+            for section in self.native_sections() + boxes(self.pdf.doc[self.index]):
                 r = fitz.Rect(section['rect']) * self.pdf.doc[self.index].rotation_matrix
                 self.canvas.create_rectangle(r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
                                              r.x1 * self.zoom + 20, r.y1 * self.zoom + 20,
@@ -307,7 +328,7 @@ class App(tk.Tk):
         if self.busy or self.pages.selected() is None or not self.pdf:
             return
         target = self.pages.selected()
-        if self.inline and target == self.index:
+        if target == self.index:
             return
         if self.inline:
             try:
@@ -334,7 +355,8 @@ class App(tk.Tk):
                 if self.inline:
                     return
             self.index = max(0, min(len(self.pdf.doc) - 1, self.index + delta))
-            self.refresh()
+            self.pages.select(self.index)
+            self.render()
 
     def scale(self, factor):
         if not self.busy:
@@ -378,7 +400,7 @@ class App(tk.Tk):
                 if fitz.Rect(box['rect']).contains(point):
                     self.guard(lambda: self.begin_box(box))
                     return
-            for section in text_sections(self.pdf.doc[self.index]):
+            for section in self.native_sections():
                 if fitz.Rect(section['rect']).contains(point):
                     self.guard(lambda: self.begin_inline(section))
                     break
@@ -416,7 +438,7 @@ class App(tk.Tk):
             page = self.pdf.doc[self.index]
             start = fitz.Point((x - 20) / self.zoom, (y - 20) / self.zoom) * page.derotation_matrix
             end = fitz.Point((x2 - 20) / self.zoom, (y2 - 20) / self.zoom) * page.derotation_matrix
-            self.text_quads, text = select_text(page, start, end)
+            self.text_quads, text = select_text(page, start, end, self.text_lines(self.index))
             self.selected_text = text
             for quad in self.text_quads:
                 r = quad.rect * page.rotation_matrix
@@ -460,7 +482,7 @@ class App(tk.Tk):
                 color, width = self.stroke_color, self.stroke_width
                 self.cancel_stroke()
                 self.guard(lambda: self.change(lambda: add_stroke(self.pdf.doc[index], points, color, width),
-                                               'Pen stroke added. Keep drawing; Undo removes the last stroke. Escape exits Pen.'))
+                                               'Pen stroke added. Keep drawing; Undo removes the last stroke. Escape exits Pen.', dirty_pages={index}))
             return
         if self.selection_mode.get() == 'addbox' and self.pdf and not self.inline and not self.busy:
             def create():
@@ -485,7 +507,7 @@ class App(tk.Tk):
                 if all(fitz.Rect(box['rect']).contains(q.rect) for q in self.text_quads):
                     self.begin_box(box)
                     return
-            sections = text_sections(self.pdf.doc[self.index])
+            sections = self.native_sections()
             candidates = [s for s in sections if all(fitz.Rect(s['rect']).contains(q.rect) for q in self.text_quads)]
             if len(candidates) != 1:
                 raise ValueError('Select text within a single section to edit it, or use Edit text boxes.')
@@ -662,7 +684,8 @@ class App(tk.Tk):
             state['index'] = n
             match = state['matches'][n]
             self.index = match['page']
-            self.refresh()
+            self.pages.select(self.index)
+            self.render()
             r = fitz.Rect(match['rect']) * self.pdf.doc[self.index].rotation_matrix
             coords = [r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
                       r.x1 * self.zoom + 20, r.y1 * self.zoom + 20]
@@ -678,7 +701,7 @@ class App(tk.Tk):
             if self.pdf is not owner:
                 window.destroy()
                 return
-            state['matches'] = find_matches(owner.doc, query.get())
+            state['matches'] = self.find_cached(query.get())
             matches_list.delete(0, 'end')
             for i, match in enumerate(state['matches']):
                 matches_list.insert('end', f'{i + 1}. Page {match["page"] + 1} — {match["context"][:90]}')
@@ -701,11 +724,11 @@ class App(tk.Tk):
                 return
             selected = state['matches'][state['index']]
             # Another edit may have occurred while this nonmodal dialog was open.
-            fresh = find_matches(owner.doc, selected['text'])
+            fresh = self.find_cached(selected['text'], [selected['page']])
             if not any(m['page'] == selected['page'] and m['rect'] == selected['rect'] and m['style'] == selected['style'] for m in fresh):
                 search()
                 raise ValueError('Document changed. Review the refreshed match before replacing.')
-            self.change(lambda: replace_match(owner.doc, selected, replacement.get()), 'Replaced one selected match using its original styling.')
+            self.change(lambda: replace_match(owner.doc, selected, replacement.get()), 'Replaced one selected match using its original styling.', dirty_pages={selected['page']})
             search()
         ttk.Button(top, text='Find matches', command=lambda: self.guard(search)).grid(row=0, column=2)
         ttk.Button(actions, text='Previous', command=lambda: step(-1)).pack(side='left')
@@ -754,7 +777,7 @@ class App(tk.Tk):
         if not self.text_quads:
             raise ValueError('Choose Select text and drag across the characters you want to highlight.')
         quads = list(self.text_quads)
-        self.change(lambda: self.pdf.doc[self.index].add_highlight_annot(quads), 'Highlighted only the selected text.')
+        self.change(lambda: self.pdf.doc[self.index].add_highlight_annot(quads), 'Highlighted only the selected text.', dirty_pages={self.index})
 
     def comment(self):
         rect = self.rect()
@@ -803,7 +826,7 @@ class App(tk.Tk):
                         r = quad.rect + (0.05, 0.05, -0.05, -0.05)
                         page.add_redact_annot(r, fill=(0, 0, 0))
                     apply_redactions(page, images=0, graphics=0, text=0)
-                self.change(remove, 'Selected text redacted. Save as to export the cleaned PDF.')
+                self.change(remove, 'Selected text redacted. Save as to export the cleaned PDF.', dirty_pages={self.index})
             return
         rect = self.rect()
         if mb.askyesno('Redact', 'Remove text, image pixels, and intersecting graphics in this area? Save as a new file afterward.', parent=self):
@@ -989,7 +1012,7 @@ class App(tk.Tk):
             if not self.pdf or self.busy:
                 return
             self.search_query = query.get()
-            self.search_matches = find_matches(self.pdf.doc, self.search_query)
+            self.search_matches = self.find_cached(self.search_query)
             self.search_position = 0
             show()
         def changed(*_):

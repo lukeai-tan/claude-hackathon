@@ -21,6 +21,8 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Test PDF engine
         run: python -m unittest discover -s tests -v
+      - name: Benchmark text editing engine
+        run: python benchmarks/editor.py
       - name: Install OCR runtime
         run: choco install tesseract --yes --no-progress
       - name: Test desktop controls before packaging
@@ -53,4 +55,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = 'build-${{ github.run_number }}'
-          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Fixes false text-height errors: shorter native PDF edits collapse unused lines; narrower sections grow into free space; table cells remain separate. Drag existing PDF text sections by their blue border, preserving font and background. Includes styled added boxes, page thumbnail reordering, freehand Pen, undo/redo, Word export and OCR. See README for limits. Unsigned executable.'
+          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Performance update: lightweight drag overlays with 16 ms frame scheduling, grouped text removal, current-page previews, cached rendering/fonts/text geometry, visible-page thumbnails and single-page invalidation. Bulk styled-text processing and fast undo snapshots remove per-character/full-document work from editing. Includes existing-text dragging, rich text boxes, Pen, page reordering, Word export and OCR. Source and packaged GUI performance checks run in CI. Unsigned executable.'

@@ -294,3 +294,5 @@ def exercise_app(app):
     app.escape_mode()
     assert app.selection_mode.get() == 'text'
     print('Freehand pen, live preview, export, colour/width, cancellation and undo/redo passed.')
+    from gui_performance import exercise_performance
+    exercise_performance(app)
