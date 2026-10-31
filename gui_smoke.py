@@ -45,4 +45,6 @@ def exercise_app(app):
         path = Path(folder) / 'packaged-export.docx'
         app.pdf.export_docx(path)
         doc = Document(path)
-        assert any('fixed' in p.text for p in doc.paragraphs)
+        editable_text = ''.join(node.text or '' for node in doc.element.xpath('.//w:t'))
+        print('Packaged Word export editable text:', repr(editable_text))
+        assert 'fixed' in editable_text, 'Replacement missing from editable Word text'
