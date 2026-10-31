@@ -2,11 +2,30 @@
 import io
 import queue
 import sys
+import os
+import traceback
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog as fd, simpledialog as sd, messagebox as mb
 from pathlib import Path
 import webbrowser
+
+# Windowed executables have no standard streams. Some conversion dependencies
+# write progress output; give them a real stream and retain diagnostic failures.
+if '--self-test' in sys.argv:
+    sys.stdout = open('smoke-output.log', 'w', encoding='utf-8', buffering=1)
+    sys.stderr = sys.stdout
+    def test_exception(kind, value, tb):
+        traceback.print_exception(kind, value, tb, file=sys.stderr)
+        sys.stderr.flush()
+        os._exit(1)
+    sys.excepthook = test_exception
+elif sys.stdout is None or sys.stderr is None:
+    _log_folder = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'OpenPDFStudio'
+    _log_folder.mkdir(parents=True, exist_ok=True)
+    _log = open(_log_folder / 'app.log', 'a', encoding='utf-8', buffering=1)
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
 
 import fitz
 from PIL import Image, ImageTk
@@ -32,6 +51,12 @@ class App(tk.Tk):
         self.busy = False
         self.results = queue.Queue()
         self.status = tk.StringVar(value='Open a PDF to begin. Files stay on your computer.')
+        self.test_error = None
+        if '--self-test' in sys.argv:
+            def record_error(kind, value, tb):
+                self.test_error = value
+                traceback.print_exception(kind, value, tb, file=sys.stderr)
+            self.report_callback_exception = record_error
         self.page_label = tk.StringVar(value='No document')
         style = ttk.Style(self)
         style.theme_use('clam')
@@ -119,6 +144,8 @@ class App(tk.Tk):
         try:
             action()
         except Exception as exc:
+            if '--self-test' in sys.argv:
+                raise
             mb.showerror('Operation could not complete', str(exc), parent=self)
             self.status.set(str(exc))
 
@@ -690,6 +717,8 @@ if __name__ == '__main__':
         app = App()
         from gui_smoke import exercise_app
         exercise_app(app)
+        if app.test_error:
+            raise app.test_error
         app.update()
         app.destroy()
     else:

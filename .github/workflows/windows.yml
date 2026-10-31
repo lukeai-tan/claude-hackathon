@@ -23,6 +23,13 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Install OCR runtime
         run: choco install tesseract --yes --no-progress
+      - name: Test desktop controls before packaging
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          python app.py --self-test
+          Get-Content smoke-output.log
+          if ($LASTEXITCODE -ne 0) { throw 'Source GUI smoke test failed' }
       - name: Build executable with English OCR
         shell: pwsh
         run: |
@@ -34,6 +41,7 @@ jobs:
         shell: pwsh
         run: |
           $process = Start-Process -FilePath 'dist\OpenPDF-Studio.exe' -ArgumentList '--self-test' -Wait -PassThru
+          if (Test-Path smoke-output.log) { Get-Content smoke-output.log }
           if ($process.ExitCode -ne 0) { throw "Executable smoke test failed: $($process.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
