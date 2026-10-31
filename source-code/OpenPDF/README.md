@@ -19,6 +19,15 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
 
 ### Direct editing and navigation
 
+Build 12 keeps the OpenSuite workspace and ports the build 11 PDF fixes:
+
+- Horizontal trackpad/Shift-wheel panning and proportional vertical scrolling using Windows preferences.
+- Highlight text continuously or choose a translucent freehand highlighter from the Highlight menu. Escape exits; Undo/Redo works for each mark.
+- Watermark layouts: top-left, centered, full-page, and repeated; angle, opacity, colour, size, and current/all-page controls. Full-page defaults to 45 degrees.
+- Click Edit text boxes again to hide outlines and return to text selection.
+- Navigation uses two compact rows; long tool labels wrap; the category rail scrolls when needed; formatting toolbars wrap and stay in the PDF viewport.
+
+
 - **Pen:** choose **Draw → Pen**, then hold the left mouse button
   and scribble. **Draw → Ink colour** changes colour; **Thickness** sets 0.5–20 pt.
   Strokes appear live and save as printable PDF ink annotations. Each stroke is

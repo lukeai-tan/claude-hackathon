@@ -1,8 +1,9 @@
 """OpenSuite workspace styling, shared visually with OpenSlides."""
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, font as tkfont
 from thumbnails import Thumbnails
 from ui_tools import configure_ui_fonts
+from scroll_tools import CanvasScroll
 
 PURPLE = '#7054d7'
 INK = '#252333'
@@ -38,10 +39,16 @@ def build_workspace(app):
     app.save_label = tk.StringVar(value='Local & private')
     header = ttk.Frame(app, padding=(16, 10))
     header.pack(fill='x')
-    ttk.Label(header, text='▣', foreground=PURPLE, font=('Segoe UI', 23, 'bold')).pack(side='left', padx=(0, 9))
-    ttk.Label(header, text='OpenPDF', style='Header.TLabel').pack(side='left')
-    ttk.Label(header, text=' / OpenSuite', style='Muted.TLabel').pack(side='left', padx=(4, 20))
-    ttk.Label(header, textvariable=app.document_label, width=26, anchor='w').pack(side='left')
+    header.columnconfigure(1, weight=1)
+    brand = ttk.Frame(header)
+    brand.grid(row=0, column=0, sticky='w')
+    ttk.Label(brand, text='▣', foreground=PURPLE, font=('Segoe UI', 23, 'bold')).pack(side='left', padx=(0, 9))
+    ttk.Label(brand, text='OpenPDF', style='Header.TLabel').pack(side='left')
+    ttk.Label(brand, text=' / OpenSuite', style='Muted.TLabel').pack(side='left', padx=(4, 12))
+    ttk.Label(header, textvariable=app.document_label, width=1, anchor='w').grid(row=0, column=1, sticky='ew', padx=6)
+    actions = ttk.Frame(header)
+    actions.grid(row=0, column=2, sticky='e')
+    header = actions
     ttk.Button(header, text='Save as', style='Primary.TButton', command=lambda: app.guard(app.save)).pack(side='right', padx=(8, 0))
     ttk.Button(header, text='Open PDF', command=lambda: app.guard(app.open)).pack(side='right', padx=4)
     ttk.Button(header, text='Redo', command=lambda: app.guard(app.redo)).pack(side='right', padx=4)
@@ -49,9 +56,17 @@ def build_workspace(app):
     ttk.Separator(app).pack(fill='x')
     body = ttk.Frame(app)
     body.pack(fill='both', expand=True)
-    rail = tk.Frame(body, background='#faf9fc', width=76)
-    rail.pack(side='left', fill='y')
-    rail.pack_propagate(False)
+    rail_view = tk.Canvas(body, background='#faf9fc', width=76, highlightthickness=0)
+    rail_view.pack(side='left', fill='y')
+    rail = tk.Frame(rail_view, background='#faf9fc')
+    rail_window = rail_view.create_window(0, 0, window=rail, anchor='nw', width=76)
+    rail.bind('<Configure>', lambda _: rail_view.configure(scrollregion=rail_view.bbox('all')))
+    rail_view.bind('<Configure>', lambda e: rail_view.itemconfigure(rail_window, width=e.width))
+    rail_scroll = CanvasScroll(rail_view)
+    def scroll_rail(event):
+        rail_scroll.wheel(event)
+        return 'break'
+    app.rail_view = rail_view
     ttk.Separator(body, orient='vertical').pack(side='left', fill='y')
     panel = ttk.Frame(body, width=236)
     panel.pack(side='left', fill='y')
@@ -71,16 +86,22 @@ def build_workspace(app):
     viewer.pack(side='left', fill='both', expand=True)
     nav = ttk.Frame(viewer, padding=(8, 7))
     nav.pack(fill='x')
+    app.navigation = nav
+    navigation_buttons = ttk.Frame(nav)
+    navigation_buttons.pack(anchor='w')
     for label, command in [('‹', lambda: app.navigate(-1)), ('›', lambda: app.navigate(1)),
                            ('−', lambda: app.scale(.8)), ('+', lambda: app.scale(1.25)), ('Fit page', app.fit_page)]:
-        ttk.Button(nav, text=label, width=8 if label=='Fit page' else 2, command=lambda c=command: app.guard(c)).pack(side='left', padx=2)
-    ttk.Radiobutton(nav, text='Text', variable=app.selection_mode, value='text', command=app.clear_selection).pack(side='left', padx=(9, 3))
-    ttk.Radiobutton(nav, text='Area', variable=app.selection_mode, value='area', command=app.clear_selection).pack(side='left', padx=3)
-    ttk.Label(nav, textvariable=app.page_label, style='Muted.TLabel').pack(side='right', padx=6)
+        ttk.Button(navigation_buttons, text=label, width=8 if label=='Fit page' else 2, command=lambda c=command: app.guard(c)).pack(side='left', padx=2)
+    navigation_details = ttk.Frame(nav)
+    navigation_details.pack(fill='x', pady=(5, 0))
+    ttk.Radiobutton(navigation_details, text='Text', variable=app.selection_mode, value='text', command=app.clear_selection).pack(side='left', padx=(2, 3))
+    ttk.Radiobutton(navigation_details, text='Area', variable=app.selection_mode, value='area', command=app.clear_selection).pack(side='left', padx=3)
+    ttk.Label(navigation_details, textvariable=app.page_label, style='Muted.TLabel').pack(side='right', padx=6)
     ttk.Separator(viewer).pack(fill='x')
     area = ttk.Frame(viewer)
     area.pack(fill='both', expand=True)
     app.canvas = tk.Canvas(area, background=MAT, highlightthickness=0)
+    app.canvas_scroll = CanvasScroll(app.canvas)
     ybar = ttk.Scrollbar(area, orient='vertical', command=app.canvas.yview)
     xbar = ttk.Scrollbar(area, orient='horizontal', command=app.canvas.xview)
     app.canvas.configure(yscrollcommand=ybar.set, xscrollcommand=xbar.set)
@@ -89,8 +110,16 @@ def build_workspace(app):
     app.canvas.pack(fill='both', expand=True)
     for event, handler in [('<ButtonPress-1>', app.start_selection), ('<B1-Motion>', app.drag_selection),
                            ('<ButtonRelease-1>', app.selection_popup), ('<MouseWheel>', app.wheel),
-                           ('<Button-4>', app.wheel), ('<Button-5>', app.wheel)]:
+                           ('<Button-4>', app.wheel), ('<Button-5>', app.wheel),
+                           ('<Shift-MouseWheel>', app.wheel), ('<Shift-Button-4>', app.wheel),
+                           ('<Shift-Button-5>', app.wheel)]:
         app.canvas.bind(event, handler)
+    if app.canvas_scroll.system == 'x11':
+        for number in (6, 7):
+            try:
+                app.canvas.bind(f'<Button-{number}>', app.wheel)
+            except tk.TclError:
+                pass
     app.canvas.bind('<Configure>', lambda _: draw_welcome(app) if not app.pdf else None)
     menu = tk.Menu(app, tearoff=False)
     menu.add_command(label='Highlight selected text', command=lambda: app.guard(app.highlight))
@@ -99,7 +128,9 @@ def build_workspace(app):
     footer = ttk.Frame(app, padding=(14, 8))
     footer.pack(fill='x')
     ttk.Label(footer, textvariable=app.save_label, foreground=PURPLE).pack(side='right', padx=(16, 0))
-    ttk.Label(footer, textvariable=app.status, style='Muted.TLabel', wraplength=850).pack(side='left')
+    status_label = ttk.Label(footer, textvariable=app.status, style='Muted.TLabel', wraplength=850)
+    status_label.pack(side='left', fill='x', expand=True)
+    status_label.bind('<Configure>', lambda e: status_label.configure(wraplength=max(100, e.width)))
     groups = {
         'File': ('▤', 'A fresh start for every document.', [('Open PDF', app.open), ('New blank', app.new), ('Save as', app.save), ('Images to PDF', app.from_images), ('Office to PDF', app.from_office), ('Batch compress', app.batch)]),
         'Edit': ('T', 'Make every page yours.', [('Edit text boxes', app.edit_mode), ('Add text', app.text), ('Replace text', app.replace), ('Add image', app.image), ('Draw signature', app.signature), ('Highlight', app.highlight), ('Comment', app.comment), ('Add link', app.link)]),
@@ -128,17 +159,35 @@ def build_workspace(app):
         scroll.bind('<Configure>', lambda e: scroll.itemconfigure(window, width=e.width))
         ttk.Label(content, text=name, style='Panel.TLabel').pack(anchor='w')
         ttk.Label(content, text=lead, style='Muted.TLabel', wraplength=184).pack(anchor='w', pady=(9, 19))
+        action_buttons = []
         for label, action in actions:
-            ttk.Button(content, text=label, style='Action.TButton', command=lambda a=action: app.guard(a)).pack(fill='x', pady=4)
+            button = ttk.Button(content, text=label, width=0, style='Action.TButton', command=lambda a=action: app.guard(a))
+            button.pack(fill='x', pady=4)
+            action_buttons.append((button, label))
+        def wrap_actions(event):
+            font = tkfont.nametofont('TkDefaultFont')
+            available = max(60, event.width - 58)
+            for button, label in action_buttons:
+                lines, line = [], ''
+                for word in label.split():
+                    candidate = (line + ' ' + word).strip()
+                    if line and font.measure(candidate) > available:
+                        lines.append(line)
+                        line = word
+                    else:
+                        line = candidate
+                lines.append(line)
+                button.configure(text='\n'.join(lines))
+        content.bind('<Configure>', wrap_actions, add='+')
         if name=='Draw':
             ttk.Label(content, text='Thickness (pt)', style='Muted.TLabel').pack(anchor='w', pady=(18, 6))
             ttk.Spinbox(content, textvariable=app.ink_width, from_=.5, to=20, increment=.5, width=8).pack(anchor='w')
             ttk.Label(content, textvariable=app.ink_color_label, style='Muted.TLabel').pack(anchor='w', pady=12)
         hints={'Edit':'Choose Text to select words, or Area to place images and signatures.', 'Protect':'Redaction removes content from the exported PDF. Keep an original copy.', 'Convert':'OCR is included in the Windows download. Office import needs LibreOffice.', 'Pages':'Drag the page previews to reorder. Ctrl+Z undoes an edit.'}
         ttk.Label(content, text=hints.get(name, 'Your files stay on this computer. No account required.'), style='Muted.TLabel', wraplength=184).pack(side='bottom', anchor='w', pady=(20, 0))
+        panel_scroll = CanvasScroll(scroll)
         def wheel(event):
-            direction = -1 if getattr(event, 'num', 0) == 4 else 1 if getattr(event, 'num', 0) == 5 else (-1 if event.delta > 0 else 1)
-            scroll.yview_scroll(direction * 3, 'units')
+            panel_scroll.wheel(event)
             return 'break'
         for child in [scroll, content, *content.winfo_children()]:
             if child.winfo_class() != 'TSpinbox':
@@ -149,6 +198,10 @@ def build_workspace(app):
         button = tk.Button(rail, text=symbol+'\n'+name, font=('Segoe UI', 10), background='#faf9fc', foreground='#686374', activebackground='#eee7ff', activeforeground=PURPLE, relief='flat', borderwidth=0, cursor='hand2', pady=7, command=lambda n=name: show_panel(n))
         button.pack(fill='x', padx=5, pady=3)
         app.rail_buttons[name] = button
+        for event in ('<MouseWheel>', '<Button-4>', '<Button-5>'):
+            button.bind(event, scroll_rail)
+    for event in ('<MouseWheel>', '<Button-4>', '<Button-5>'):
+        rail_view.bind(event, scroll_rail)
     show_panel('File')
 
 

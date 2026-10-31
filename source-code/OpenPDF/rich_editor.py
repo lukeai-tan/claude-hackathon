@@ -1,3 +1,4 @@
+from pdf_layout import ResponsiveToolbar, visible_toolbar_y
 """Live, selectable styled text inside movable PDF boxes."""
 from copy import deepcopy
 import io
@@ -122,6 +123,7 @@ class RichBoxEditor:
         self.widget.bind('<<Modified>>', self.modified)
         self.caret = TextCaret(self.widget, self.caret_font)
         self.widget.edit_modified(False)
+        self.toolbar_layout = ResponsiveToolbar(self)
         self.toolbar.update_idletasks()  # once, not for every pointer event
         self.toolbar_size = (self.toolbar.winfo_reqwidth(), self.toolbar.winfo_reqheight())
         self.position()
@@ -365,6 +367,7 @@ class RichBoxEditor:
         # At the top of a page put the toolbar below, leaving text accessible.
         if ty + th > y0 - 3:
             ty = y1 + 14
+        ty = visible_toolbar_y(c, ty, th)
         c.coords(self.toolbar_id, tx, ty)
         c.tag_raise(self.toolbar_id)
 

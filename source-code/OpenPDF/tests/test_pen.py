@@ -33,6 +33,20 @@ class PenTests(unittest.TestCase):
                 add_stroke(self.pdf.doc[0], points, width=width)
             self.assertEqual(list(self.pdf.doc[0].annots() or []), [])
 
+    def test_freehand_highlight_is_translucent_and_printable_after_reopen(self):
+        page = self.pdf.doc[0]
+        page.draw_rect(fitz.Rect(40, 70, 100, 90), fill=(0, 0, 0), color=None)
+        add_stroke(page, [(20, 80), (150, 80)], '#ffff00', 12, highlight=True)
+        self.pdf.restore(self.pdf.bytes())
+        page = self.pdf.doc[0]
+        mark = list(page.annots())[0]
+        self.assertAlmostEqual(mark.opacity, .35, places=5)
+        self.assertEqual(mark.blendmode, 'Multiply')
+        self.assertEqual(mark.border['width'], 12)
+        self.assertTrue(mark.flags & fitz.PDF_ANNOT_IS_PRINT)
+        self.assertEqual(page.get_pixmap().pixel(60, 80), (0, 0, 0))
+        self.assertIn('Keep this text', page.get_text())
+
     def test_dot_and_rotated_page(self):
         page = self.pdf.doc[0]
         page.set_rotation(90)
@@ -44,4 +58,3 @@ class PenTests(unittest.TestCase):
         vertex = fitz.Point(list(page.annots())[0].vertices[0][0]) * page.rotation_matrix
         self.assertLess(vertex.distance_to(displayed), .01)
         self.assertLess(page.get_pixmap().pixel(100, 200)[0], 100)
-
