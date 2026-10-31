@@ -12,3 +12,7 @@ installation, including its bundled notices and dependencies, is included.
 Build dependencies are pinned in requirements.txt. The OCR runtime is installed
 by Chocolatey on the build runner. LibreOffice is optional and installed by the
 user separately; it is not bundled. This project is not affiliated with Adobe.
+
+Word layout reconstruction uses pdf2docx and its dependencies (including OpenCV
+and NumPy). Embedded font cmap repair uses fontTools. Their upstream licenses
+and notices apply; PyInstaller collects pdf2docx package data with the release.

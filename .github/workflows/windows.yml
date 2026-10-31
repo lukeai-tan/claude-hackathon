@@ -28,8 +28,9 @@ jobs:
         run: |
           $ocrPath = 'C:\Program Files\Tesseract-OCR'
           if (!(Test-Path "$ocrPath\tesseract.exe")) { throw 'Tesseract installation missing' }
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF-Studio --collect-all pymupdf --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF-Studio --collect-all pymupdf --collect-all pdf2docx --collect-submodules fontTools.ttLib.tables --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
       - name: Test packaged executable
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $process = Start-Process -FilePath 'dist\OpenPDF-Studio.exe' -ArgumentList '--self-test' -Wait -PassThru
@@ -44,4 +45,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = 'build-${{ github.run_number }}'
-          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Windows portable EXE. Includes English OCR. See README for feature support and limitations. Unsigned executable.'
+          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Windows portable EXE with editable Word layout conversion, individual styled text replacement, drag-selected highlights, and English OCR. See README for limits. Unsigned executable.'

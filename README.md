@@ -17,8 +17,24 @@ testing remains pending. The release link works after a successful workflow run.
 ## Use
 
 Open a PDF, select a page in the sidebar, and use the ribbon tabs.
-Drag a rectangle over a page before placing text, an image, a signature, a form
-field, a comment/link, cropping, or redacting. Save as exports the document.
+In **Select text** mode, drag across characters, then click Highlight (or Ctrl+H
+or right-click → Highlight selected text). This highlights only that selection,
+including selections across multiple lines. Switch to **Select area** before
+placing text, images, signatures, fields, comments/links, cropping, or redacting.
+Save as exports the document.
+
+**Replace text** opens a searchable list of individual matches across every page.
+Select a result or use Previous/Next; the viewer scrolls to the orange outline.
+The dialog shows the detected font, size and colour. Replace selected changes
+only that occurrence, retaining its baseline, size, font outlines, colour and
+underlying background. Text that would overlap its neighbour is rejected rather
+than silently resized. Missing subset-font glyphs and mixed-style matches are
+reported without changing the PDF. Paragraph reflow is not supported.
+
+**Export Word** reconstructs editable paragraphs, styled runs, tables, images and
+page layout with pdf2docx. It is no longer the plain-text export used in build 1.
+Scanned documents need OCR first. Highly designed pages, unusual fonts and
+complex vector graphics may still differ from the PDF; review the result in Word.
 Ctrl+O opens, Ctrl+S exports, Ctrl+Z undoes the last change (up to 8 snapshots).
 Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 
@@ -29,15 +45,15 @@ Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 | Merge, split, extract, reorder, duplicate pages | Implemented; ranges such as `3,1-2,3` |
 | Rotate, delete, insert blank, crop | Implemented |
 | Add text and images | Implemented; basic Latin text font; choose an area |
-| Replace existing text | Implemented within fixed original bounds; no paragraph reflow or original font matching |
-| Highlight, comments, hyperlinks | Implemented |
+| Replace existing text | One selected match; embedded font, size, colour and baseline preserved; transparent text removal preserves background; no paragraph reflow |
+| Highlight, comments, hyperlinks | Drag-selected text highlighting; comments and links use area selection |
 | Visual signatures | Draw and embed; not cryptographic certificate signatures |
 | Create/fill forms | Interactive text fields and checkboxes; no XFA support |
 | Redaction | Removes intersecting text, image pixels, and graphics; cleaned full export required |
 | Metadata/attachment cleanup | Implemented; not a comprehensive hidden-content audit |
 | Password protection | AES-256 opening password; normal export removes encryption |
 | OCR | English Tesseract bundled in Windows build; selected pages rasterized with searchable text; those pages lose forms/links |
-| PDF to Word | Text and page breaks only; no faithful table/image/font reconstruction |
+| PDF to Word | Editable layout reconstruction including styles, tables and images; complex layout fidelity varies |
 | PDF to text/PNG | Implemented |
 | Images to PDF | Implemented |
 | Office to PDF | Requires separately installed LibreOffice |

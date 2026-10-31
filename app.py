@@ -11,6 +11,7 @@ import webbrowser
 import fitz
 from PIL import Image, ImageTk
 from core import PDF, page_numbers, images_to_pdf, office_to_pdf
+from text_tools import find_matches, replace_match, select_text
 
 
 class App(tk.Tk):
@@ -26,6 +27,8 @@ class App(tk.Tk):
         self.history = []
         self.dirty = False
         self.selection = None
+        self.text_quads = []
+        self.selection_mode = tk.StringVar(value='text')
         self.busy = False
         self.results = queue.Queue()
         self.status = tk.StringVar(value='Open a PDF to begin. Files stay on your computer.')
@@ -55,7 +58,7 @@ class App(tk.Tk):
                       ('Fill fields', self.fill)],
             'Protect': [('Redact selection', self.redact), ('Remove metadata / attachments', self.sanitize),
                         ('Password export', self.encrypt), ('Metadata', self.metadata)],
-            'Convert': [('OCR pages', self.ocr), ('Export Word (text)', self.docx),
+            'Convert': [('Export Word', self.docx), ('OCR pages', self.ocr),
                         ('Export text', self.txt), ('Export PNGs', self.png),
                         ('Compare text', self.compare), ('Compressed export', self.save)],
             'Tools': [('Search', self.search), ('Watermark', self.watermark),
@@ -82,6 +85,8 @@ class App(tk.Tk):
                                ('Zoom −', lambda: self.scale(0.8)), ('Zoom +', lambda: self.scale(1.25))]:
             ttk.Button(nav, text=label, command=command).pack(side='left', padx=2)
         ttk.Label(nav, textvariable=self.page_label).pack(side='right', padx=10)
+        ttk.Radiobutton(nav, text='Select text', variable=self.selection_mode, value='text', command=self.clear_selection).pack(side='left', padx=5)
+        ttk.Radiobutton(nav, text='Select area', variable=self.selection_mode, value='area', command=self.clear_selection).pack(side='left')
         area = ttk.Frame(viewer)
         area.pack(fill='both', expand=True)
         self.canvas = tk.Canvas(area, background='#dce3ed', highlightthickness=0)
@@ -93,12 +98,19 @@ class App(tk.Tk):
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<ButtonPress-1>', self.start_selection)
         self.canvas.bind('<B1-Motion>', self.drag_selection)
+        self.canvas.bind('<MouseWheel>', lambda e: self.canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
+        self.canvas.bind('<Button-4>', lambda e: self.canvas.yview_scroll(-1, 'units'))
+        self.canvas.bind('<Button-5>', lambda e: self.canvas.yview_scroll(1, 'units'))
+        menu = tk.Menu(self, tearoff=False)
+        menu.add_command(label='Highlight selected text', command=lambda: self.guard(self.highlight))
+        self.canvas.bind('<Button-3>', lambda e: menu.tk_popup(e.x_root, e.y_root))
         body.add(viewer, weight=1)
         ttk.Label(self, textvariable=self.status, padding=10, wraplength=1100).pack(fill='x')
         self.protocol('WM_DELETE_WINDOW', self.quit_app)
         self.bind('<Control-o>', lambda e: self.guard(self.open))
         self.bind('<Control-s>', lambda e: self.guard(self.save))
         self.bind('<Control-z>', lambda e: self.guard(self.undo))
+        self.bind('<Control-h>', lambda e: self.guard(self.highlight))
         self.after(100, self.poll)
 
     def guard(self, action):
@@ -130,7 +142,7 @@ class App(tk.Tk):
         self.pdf, self.path = loaded, path
         self.history, self.index, self.dirty = [], 0, False
         self.refresh()
-        self.status.set(f'Opened {Path(path).name}. Drag on the page to select an area.')
+        self.status.set(f'Opened {Path(path).name}. Drag to select text; switch to Select area for placement/cropping.')
 
     def open(self):
         if not self.confirm_discard():
@@ -198,6 +210,7 @@ class App(tk.Tk):
         self.canvas.create_image(20, 20, anchor='nw', image=self.photo)
         self.canvas.configure(scrollregion=(0, 0, pix.width + 40, pix.height + 40))
         self.selection = None
+        self.text_quads = []
         self.page_label.set(f'Page {self.index + 1} of {len(self.pdf.doc)} · {round(self.zoom * 100)}%')
 
     def go(self, event=None):
@@ -221,6 +234,13 @@ class App(tk.Tk):
             return
         self.origin = (self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
         self.canvas.delete('selection')
+        self.text_quads = []
+        self.selection = None
+
+    def clear_selection(self):
+        self.canvas.delete('selection')
+        self.text_quads = []
+        self.selection = None
 
     def drag_selection(self, event):
         if self.busy or not hasattr(self, 'origin'):
@@ -228,6 +248,18 @@ class App(tk.Tk):
         x, y = self.origin
         x2, y2 = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         self.canvas.delete('selection')
+        if self.selection_mode.get() == 'text' and self.pdf:
+            page = self.pdf.doc[self.index]
+            start = fitz.Point((x - 20) / self.zoom, (y - 20) / self.zoom) * page.derotation_matrix
+            end = fitz.Point((x2 - 20) / self.zoom, (y2 - 20) / self.zoom) * page.derotation_matrix
+            self.text_quads, text = select_text(page, start, end)
+            for quad in self.text_quads:
+                r = quad.rect * page.rotation_matrix
+                self.canvas.create_rectangle(r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
+                                             r.x1 * self.zoom + 20, r.y1 * self.zoom + 20,
+                                             fill='#93c5fd', stipple='gray50', outline='', tags='selection')
+            self.status.set(f'Selected: {text[:160]} — Highlight or Ctrl+H to mark only this selection.')
+            return
         self.canvas.create_rectangle(x, y, x2, y2, outline='#2563eb', width=2, tags='selection')
         self.selection = fitz.Rect((min(x, x2) - 20) / self.zoom, (min(y, y2) - 20) / self.zoom,
                                    (max(x, x2) - 20) / self.zoom, (max(y, y2) - 20) / self.zoom)
@@ -235,7 +267,7 @@ class App(tk.Tk):
     def rect(self):
         self.require()
         if self.selection is None or self.selection.is_empty:
-            raise ValueError('Drag a rectangle on the page first.')
+            raise ValueError('Choose Select area, then drag a rectangle on the page.')
         page = self.pdf.doc[self.index]
         r = self.selection & page.rect
         if r.is_empty:
@@ -291,13 +323,90 @@ class App(tk.Tk):
 
     def replace(self):
         self.require()
-        old = sd.askstring('Replace text', 'Find on current page:', parent=self)
-        if not old:
-            return
-        new = sd.askstring('Replace text', 'Replace with (fixed original bounds; no paragraph reflow):', parent=self)
-        size = sd.askinteger('Font size', 'Replacement font size:', initialvalue=10, minvalue=4, parent=self) if new is not None else None
-        if new is not None and size:
-            self.change(lambda: self.pdf.replace_text(self.index, old, new, size))
+        window = tk.Toplevel(self)
+        window.title('Find and replace one match')
+        window.geometry('600x420')
+        window.transient(self)
+        owner = self.pdf
+        query, replacement = tk.StringVar(), tk.StringVar()
+        details = tk.StringVar(value='Search the whole document, then select a match.')
+        top = ttk.Frame(window, padding=12)
+        top.pack(fill='x')
+        ttk.Label(top, text='Find').grid(row=0, column=0, sticky='w')
+        entry = ttk.Entry(top, textvariable=query, width=36)
+        entry.grid(row=0, column=1, padx=8)
+        ttk.Label(top, text='Replace with').grid(row=1, column=0, sticky='w', pady=8)
+        ttk.Entry(top, textvariable=replacement, width=36).grid(row=1, column=1, padx=8)
+        listing = ttk.Frame(window, padding=(12, 0))
+        listing.pack(fill='both', expand=True)
+        matches_list = tk.Listbox(listing, exportselection=False)
+        scroll = ttk.Scrollbar(listing, command=matches_list.yview)
+        matches_list.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right', fill='y')
+        matches_list.pack(fill='both', expand=True)
+        ttk.Label(window, textvariable=details, padding=12, wraplength=570).pack(fill='x')
+        actions = ttk.Frame(window, padding=10)
+        actions.pack(fill='x')
+        state = {'matches': [], 'index': 0}
+        def display(event=None):
+            if not matches_list.curselection() or self.pdf is not owner:
+                return
+            n = matches_list.curselection()[0]
+            state['index'] = n
+            match = state['matches'][n]
+            self.index = match['page']
+            self.refresh()
+            r = fitz.Rect(match['rect']) * self.pdf.doc[self.index].rotation_matrix
+            coords = [r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
+                      r.x1 * self.zoom + 20, r.y1 * self.zoom + 20]
+            self.canvas.create_rectangle(*coords, outline='#f97316', width=3, tags='selection')
+            bounds = self.canvas.bbox('all')
+            self.canvas.yview_moveto(max(0, (coords[1] - self.canvas.winfo_height() / 3) / max(1, bounds[3])))
+            self.canvas.xview_moveto(max(0, (coords[0] - self.canvas.winfo_width() / 3) / max(1, bounds[2])))
+            style = match['style']
+            details.set(f'Match {n + 1}/{len(state["matches"])} · Page {match["page"] + 1}\n'
+                        f'{style["font"]} · {style["size"]:g} pt · #{style["color"]:06X}\n'
+                        'Original baseline, font, size and colour are reused. Background is preserved.')
+        def search():
+            if self.pdf is not owner:
+                window.destroy()
+                return
+            state['matches'] = find_matches(owner.doc, query.get())
+            matches_list.delete(0, 'end')
+            for i, match in enumerate(state['matches']):
+                matches_list.insert('end', f'{i + 1}. Page {match["page"] + 1} — {match["context"][:90]}')
+            if state['matches']:
+                n = min(state['index'], len(state['matches']) - 1)
+                matches_list.selection_set(n)
+                matches_list.see(n)
+                display()
+            else:
+                details.set('No matches. Scanned pages may need OCR first.')
+        def step(delta):
+            if state['matches']:
+                n = (state['index'] + delta) % len(state['matches'])
+                matches_list.selection_clear(0, 'end')
+                matches_list.selection_set(n)
+                matches_list.see(n)
+                display()
+        def apply():
+            if self.busy or self.pdf is not owner or not state['matches']:
+                return
+            selected = state['matches'][state['index']]
+            # Another edit may have occurred while this nonmodal dialog was open.
+            fresh = find_matches(owner.doc, selected['text'])
+            if not any(m['page'] == selected['page'] and m['rect'] == selected['rect'] and m['style'] == selected['style'] for m in fresh):
+                search()
+                raise ValueError('Document changed. Review the refreshed match before replacing.')
+            self.change(lambda: replace_match(owner.doc, selected, replacement.get()), 'Replaced one selected match using its original styling.')
+            search()
+        ttk.Button(top, text='Find matches', command=lambda: self.guard(search)).grid(row=0, column=2)
+        ttk.Button(actions, text='Previous', command=lambda: step(-1)).pack(side='left')
+        ttk.Button(actions, text='Next', command=lambda: step(1)).pack(side='left', padx=6)
+        ttk.Button(actions, text='Replace selected', command=lambda: self.guard(apply)).pack(side='right')
+        matches_list.bind('<<ListboxSelect>>', display)
+        entry.bind('<Return>', lambda e: self.guard(search))
+        entry.focus_set()
 
     def image(self):
         rect = self.rect()
@@ -335,9 +444,10 @@ class App(tk.Tk):
 
     def highlight(self):
         self.require()
-        text = sd.askstring('Highlight', 'Text on current page:', parent=self)
-        if text:
-            self.change(lambda: self.pdf.highlight(self.index, text))
+        if not self.text_quads:
+            raise ValueError('Choose Select text and drag across the characters you want to highlight.')
+        quads = list(self.text_quads)
+        self.change(lambda: self.pdf.doc[self.index].add_highlight_annot(quads), 'Highlighted only the selected text.')
 
     def comment(self):
         rect = self.rect()
@@ -451,8 +561,16 @@ class App(tk.Tk):
         self.require()
         path = self.output('.docx')
         if path:
-            self.pdf.export_docx(path)
-            self.status.set('Word text exported. Complex layout, images, tables, and fonts are not reconstructed.')
+            snapshot = self.pdf.bytes()
+            def work():
+                worker = PDF()
+                try:
+                    worker.restore(snapshot)
+                    worker.export_docx(path)
+                finally:
+                    worker.close()
+            self.background(work, lambda _: self.status.set('Editable Word document exported with reconstructed formatting, tables and images. Review complex layouts in Word.'),
+                            'Reconstructing editable Word layout…')
 
     def txt(self):
         self.require()
@@ -542,10 +660,10 @@ class App(tk.Tk):
         mb.showinfo('Feature status', 'OpenPDF Studio — AGPL-3.0-or-later\n\n'
                     'Local PDF tools, OCR, editable text/checkbox forms, annotations, visual signatures, '
                     'AES-256 export, redaction, text comparison, page management, and batch compression.\n\n'
-                    'Word export is text-only. Replacement text uses fixed bounds and a basic font. '
+                    'Word export reconstructs editable layout; complex designs may differ. Replacement reuses embedded fonts, size and colour. '
                     'OCR rasterizes selected pages. Compression may not reduce every file.\n\n'
                     'Not implemented: certificate signatures, remote signer identities/delivery/audit service, '
-                    'real-time collaboration, exact Word layout reconstruction, XFA forms, PDF/A validation, '
+                    'real-time collaboration, guaranteed exact Word layout reconstruction, XFA forms, PDF/A validation, '
                     'accessibility remediation, AI chat.\n\n'
                     'Office import needs LibreOffice. Windows bundle includes English Tesseract OCR.', parent=self)
 
@@ -570,6 +688,8 @@ if __name__ == '__main__':
             with fitz.open(path) as check:
                 assert 'smoke test' in check[0].get_text()
         app = App()
+        from gui_smoke import exercise_app
+        exercise_app(app)
         app.update()
         app.destroy()
     else:

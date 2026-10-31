@@ -11,6 +11,7 @@ import tempfile
 
 import fitz
 from PIL import Image
+from text_tools import find_matches, replace_match, select_text
 
 
 def page_numbers(spec, count):
@@ -184,6 +185,20 @@ class PDF:
         Path(path).write_text('\n\f\n'.join(p.get_text() for p in self.doc), encoding='utf-8')
 
     def export_docx(self, path):
+        """Reconstruct editable paragraphs, runs, tables, images and page layout."""
+        from pdf2docx import Converter
+        if not any(p.get_text().strip() for p in self.doc):
+            raise ValueError('This PDF has no text layer. Run OCR first for editable Word text.')
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'source.pdf'
+            self.save(source)
+            converter = Converter(str(source))
+            try:
+                converter.convert(str(path), multi_processing=False)
+            finally:
+                converter.close()
+
+    def export_docx_text(self, path):
         from docx import Document
         out = Document()
         for i, page in enumerate(self.doc):
