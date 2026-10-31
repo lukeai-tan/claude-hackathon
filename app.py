@@ -6,7 +6,7 @@ import os
 import traceback
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog as fd, simpledialog as sd, messagebox as mb
+from tkinter import ttk, filedialog as fd, simpledialog as sd, messagebox as mb, colorchooser
 from pathlib import Path
 import webbrowser
 
@@ -36,6 +36,7 @@ from inline_editor import InlineEditor
 from rich_editor import RichBoxEditor
 from rich_boxes import boxes, new_box, move_page, apply_redactions
 from thumbnails import Thumbnails
+from pen_tools import add_stroke
 
 
 class App(tk.Tk):
@@ -60,6 +61,10 @@ class App(tk.Tk):
         self.search_position = 0
         self.search_window = None
         self.text_quads = []
+        self.ink_points = None
+        self.ink_color = '#1761c5'
+        self.ink_width = tk.StringVar(value='2.5')
+        self.ink_color_label = tk.StringVar(value='Ink: #1761c5')
         self.selection_mode = tk.StringVar(value='text')
         self.busy = False
         self.results = queue.Queue()
@@ -91,6 +96,7 @@ class App(tk.Tk):
             'Pages': [('Merge', self.merge), ('Extract / reorder', self.select), ('Split all', self.split),
                       ('Rotate', self.rotate), ('Delete page', self.delete), ('Blank page', self.blank),
                       ('Crop selection', self.crop), ('Bookmark', self.bookmark)],
+            'Draw': [('Pen', self.pen_mode), ('Ink colour', self.pen_color), ('Done drawing', self.stop_pen)],
             'Edit': [('Edit text boxes', self.edit_mode), ('Add text', self.text), ('Replace text', self.replace), ('Add image', self.image),
                      ('Draw signature', self.signature), ('Highlight', self.highlight),
                      ('Comment', self.comment), ('Add link', self.link)],
@@ -109,6 +115,11 @@ class App(tk.Tk):
             tabs.add(frame, text=title)
             for label, action in actions:
                 ttk.Button(frame, text=label, command=lambda a=action: self.guard(a)).pack(side='left', padx=2)
+            if title == 'Draw':
+                ttk.Label(frame, text='Thickness (pt)').pack(side='left', padx=(15, 5))
+                ttk.Spinbox(frame, textvariable=self.ink_width, from_=0.5, to=20,
+                            increment=0.5, width=5).pack(side='left')
+                ttk.Label(frame, textvariable=self.ink_color_label).pack(side='left', padx=12)
         body = ttk.PanedWindow(self, orient='horizontal')
         body.pack(fill='both', expand=True, padx=12, pady=10)
         side = ttk.Frame(body, width=180)
@@ -125,6 +136,7 @@ class App(tk.Tk):
         ttk.Label(nav, textvariable=self.page_label).pack(side='right', padx=10)
         ttk.Radiobutton(nav, text='Select text', variable=self.selection_mode, value='text', command=self.clear_selection).pack(side='left', padx=5)
         ttk.Radiobutton(nav, text='Select area', variable=self.selection_mode, value='area', command=self.clear_selection).pack(side='left')
+        ttk.Button(nav, text='Pen', command=lambda: self.guard(self.pen_mode)).pack(side='left', padx=4)
         area = ttk.Frame(viewer)
         area.pack(fill='both', expand=True)
         self.canvas = tk.Canvas(area, background='#dce3ed', highlightthickness=0)
@@ -156,6 +168,7 @@ class App(tk.Tk):
         self.bind('<Control-Button-4>', self.wheel)
         self.bind('<Control-Button-5>', self.wheel)
         self.bind('<Control-h>', lambda e: self.guard(self.highlight))
+        self.bind('<Escape>', self.escape_mode)
         self.after(100, self.poll)
 
     def guard(self, action):
@@ -264,6 +277,8 @@ class App(tk.Tk):
     def render(self):
         if not self.pdf or self.inline:
             return
+        self.cancel_stroke()
+        self.canvas.configure(cursor='crosshair' if self.selection_mode.get() in ('pen', 'addbox') else '')
         self.hide_context()
         pix = self.pdf.doc[self.index].get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
         self.photo = ImageTk.PhotoImage(Image.open(io.BytesIO(pix.tobytes('png'))))
@@ -353,6 +368,9 @@ class App(tk.Tk):
             self.guard(self.inline.commit)
             if self.inline:
                 return
+        if self.selection_mode.get() == 'pen':
+            self.guard(lambda: self.begin_stroke(event))
+            return
         if self.pdf and self.selection_mode.get() == 'edit':
             point = fitz.Point((self.canvas.canvasx(event.x) - 20) / self.zoom,
                                (self.canvas.canvasy(event.y) - 20) / self.zoom) * self.pdf.doc[self.index].derotation_matrix
@@ -376,6 +394,8 @@ class App(tk.Tk):
             if self.inline:
                 self.selection_mode.set('edit')
                 return
+        self.cancel_stroke()
+        self.canvas.configure(cursor='crosshair' if self.selection_mode.get() == 'pen' else '')
         self.hide_context()
         self.canvas.delete('selection')
         self.canvas.delete('text-box')
@@ -383,6 +403,10 @@ class App(tk.Tk):
         self.selection = None
 
     def drag_selection(self, event):
+        if self.selection_mode.get() == 'pen':
+            if not self.busy:
+                self.extend_stroke(event)
+            return
         if self.busy or self.inline or self.selection_mode.get() == 'edit' or not hasattr(self, 'origin'):
             return
         x, y = self.origin
@@ -429,6 +453,15 @@ class App(tk.Tk):
             self.context_frame = None
 
     def selection_popup(self, event=None):
+        if self.selection_mode.get() == 'pen':
+            if self.ink_points and not self.busy:
+                self.extend_stroke(event)
+                points, index = list(self.ink_points), self.ink_page
+                color, width = self.stroke_color, self.stroke_width
+                self.cancel_stroke()
+                self.guard(lambda: self.change(lambda: add_stroke(self.pdf.doc[index], points, color, width),
+                                               'Pen stroke added. Keep drawing; Undo removes the last stroke. Escape exits Pen.'))
+            return
         if self.selection_mode.get() == 'addbox' and self.pdf and not self.inline and not self.busy:
             def create():
                 rect = self.rect()
@@ -521,6 +554,79 @@ class App(tk.Tk):
         self.selection_mode.set('addbox')
         self.render()
         self.status.set('Add text box: drag a rectangle on the page, then type. Drag its blue border to move it.')
+
+    def pen_mode(self):
+        self.require()
+        self.pen_width_value()
+        self.clear_selection()
+        self.selection_mode.set('pen')
+        self.render()
+        self.status.set('Pen: hold the left mouse button and scribble. Draw tab changes colour/thickness. Escape exits; Undo removes a stroke.')
+
+    def pen_width_value(self):
+        try:
+            value = float(self.ink_width.get())
+            if not .5 <= value <= 20:
+                raise ValueError()
+            return value
+        except ValueError:
+            raise ValueError('Choose a pen thickness between 0.5 and 20 points.') from None
+
+    def pen_color(self):
+        color = colorchooser.askcolor(parent=self, color=self.ink_color, title='Pen ink colour')[1]
+        if color:
+            self.ink_color = color
+            self.ink_color_label.set('Ink: ' + color)
+
+    def stop_pen(self):
+        self.cancel_stroke()
+        self.selection_mode.set('text')
+        self.clear_selection()
+        self.render()
+        self.status.set('Text selection enabled.')
+
+    def escape_mode(self, event=None):
+        if self.ink_points:
+            self.cancel_stroke()
+            self.status.set('Unfinished stroke cancelled. Pen remains active.')
+        elif self.selection_mode.get() in ('pen', 'addbox'):
+            self.stop_pen()
+        return 'break'
+
+    def cancel_stroke(self):
+        self.ink_points = None
+        self.canvas.delete('ink-preview')
+
+    def begin_stroke(self, event):
+        self.require()
+        self.cancel_stroke()
+        self.stroke_width = self.pen_width_value()
+        self.stroke_color = self.ink_color
+        self.ink_page = self.index
+        x = (self.canvas.canvasx(event.x) - 20) / self.zoom
+        y = (self.canvas.canvasy(event.y) - 20) / self.zoom
+        page = self.pdf.doc[self.index]
+        if not page.rect.contains(fitz.Point(x, y)):
+            return
+        point = fitz.Point(x, y) * page.derotation_matrix
+        self.ink_points = [tuple(point)]
+        self.ink_preview = self.canvas.create_line(x * self.zoom + 20, y * self.zoom + 20,
+                                                   x * self.zoom + 20.01, y * self.zoom + 20,
+                                                   fill=self.stroke_color, width=self.stroke_width * self.zoom,
+                                                   capstyle='round', joinstyle='round', tags='ink-preview')
+
+    def extend_stroke(self, event):
+        if not self.ink_points or not event or self.ink_page != self.index:
+            return
+        page = self.pdf.doc[self.index]
+        x = max(0, min(page.rect.width, (self.canvas.canvasx(event.x) - 20) / self.zoom))
+        y = max(0, min(page.rect.height, (self.canvas.canvasy(event.y) - 20) / self.zoom))
+        point = fitz.Point(x, y) * page.derotation_matrix
+        if point.distance_to(fitz.Point(self.ink_points[-1])) < .25:
+            return
+        self.ink_points.append(tuple(point))
+        screen = [fitz.Point(p) * page.rotation_matrix for p in self.ink_points]
+        self.canvas.coords(self.ink_preview, *[v * self.zoom + 20 for p in screen for v in p])
 
     def replace(self):
         self.require()

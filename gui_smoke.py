@@ -204,6 +204,9 @@ def exercise_app(app):
         app.pdf.export_docx(word)
         xml_text = ''.join(n.text or '' for n in Document(word).element.xpath('.//w:t'))
         assert 'Red' in xml_text and 'blue text' in xml_text, 'Added box missing in Word'
+        # Release the Windows file handle before TemporaryDirectory cleanup.
+        app.pdf.restore(app.pdf.bytes())
+        app.path = None
 
     # Reorder through real thumbnail drag/drop, and exercise undo/redo.
     app.pdf.doc.new_page().insert_text((50, 50), 'Page two')
@@ -226,3 +229,41 @@ def exercise_app(app):
     app.redo()
     assert boxes(app.pdf.doc[2]), 'Redo did not restore page order'
     print('Styled boxes, selection formatting, live fill, drag/resize, Word export and thumbnail reorder passed.')
+
+    # Pen strokes preview live, retain colour/width, survive export, and undo.
+    app.canvas.xview_moveto(0)
+    app.canvas.yview_moveto(0)
+    with patch.object(colorchooser, 'askcolor', return_value=((0, 128, 0), '#008000')):
+        app.pen_color()
+    app.ink_width.set('4')
+    app.pen_mode()
+    app.canvas.event_generate('<ButtonPress-1>', x=80, y=80)
+    for x, y in [(100, 100), (120, 80), (140, 100), (160, 80)]:
+        app.canvas.event_generate('<B1-Motion>', x=x, y=y)
+    assert app.canvas.find_withtag('ink-preview'), 'Pen had no live preview'
+    app.canvas.event_generate('<ButtonRelease-1>', x=170, y=90)
+    app.update()
+    assert not app.canvas.find_withtag('ink-preview')
+    page = app.pdf.doc[app.index]
+    ink = list(page.annots())
+    assert len(ink) == 1 and ink[0].type[0] == fitz.PDF_ANNOT_INK
+    assert ink[0].border['width'] == 4
+    app.undo()
+    assert not list(app.pdf.doc[app.index].annots() or [])
+    app.redo()
+    assert len(list(app.pdf.doc[app.index].annots())) == 1
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / 'ink.pdf'
+        app.pdf.save(path)
+        with fitz.open(path) as saved:
+            page = saved[app.index]
+            ink = list(page.annots())
+            assert len(ink[0].vertices[0]) >= 5
+            assert abs(ink[0].colors['stroke'][1] - 128 / 255) < .01
+    app.canvas.event_generate('<ButtonPress-1>', x=200, y=100)
+    app.escape_mode()
+    app.canvas.event_generate('<ButtonRelease-1>', x=220, y=100)
+    assert len(list(app.pdf.doc[app.index].annots())) == 1, 'Escape committed an unfinished stroke'
+    app.escape_mode()
+    assert app.selection_mode.get() == 'text'
+    print('Freehand pen, live preview, export, colour/width, cancellation and undo/redo passed.')

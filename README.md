@@ -19,6 +19,12 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
 
 ### Direct editing and navigation
 
+- **Pen:** click the Pen button above the page, then hold the left mouse button
+  and scribble. **Draw → Ink colour** changes colour; **Thickness** sets 0.5–20 pt.
+  Strokes appear live and save as printable PDF ink annotations. Each stroke is
+  one Undo/Redo step. **Done drawing**, Select text, or Escape exits Pen; Escape
+  during a stroke cancels that unfinished stroke. Drawing also supports rotated
+  pages and zoomed/scrolled views.
 - **Edit → Add text:** drag a rectangle and type directly inside it. Select
   letters to change just their font, size, colour, bold, italic or underline.
   With no selection these controls format the whole box. Choose a box fill,
@@ -90,6 +96,7 @@ Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 | Replace existing text | One selected match; embedded font, size, colour and baseline preserved; transparent text removal preserves background; no paragraph reflow |
 | Highlight, comments, hyperlinks | Drag-selected text highlighting; comments and links use area selection |
 | Visual signatures | Draw and embed; not cryptographic certificate signatures |
+| Freehand pen | Live mouse scribbling, colour/thickness, printable PDF ink, stroke undo/redo |
 | Create/fill forms | Interactive text fields and checkboxes; no XFA support |
 | Redaction | Removes intersecting text, image pixels, and graphics; cleaned full export required |
 | Metadata/attachment cleanup | Implemented; not a comprehensive hidden-content audit |
