@@ -16,6 +16,29 @@ testing remains pending. The release link works after a successful workflow run.
 
 ## Use
 
+### Direct editing and navigation
+
+- **Edit → Edit text boxes:** shows section outlines. Click a section and type
+  directly on the page. Letters shift immediately as you type or Backspace.
+  The lower-right handle resizes the box and changes wrapping. Click outside,
+  Apply, or Ctrl+Enter to apply; Escape cancels. Ctrl+Z/Ctrl+Y work within the
+  active editor. The exported PDF reuses the original embedded font and background.
+- Selecting text opens a compact **Edit section / Highlight / Redact / Copy**
+  toolbar next to the selection. Mixed font styles become separate editable runs.
+- **Ctrl+F:** live find with yellow on-page matches, an orange active match, and
+  Previous/Next navigation. Search highlighting is temporary and is not exported.
+- **Ctrl + mouse wheel:** zoom in/out. Normal wheel scrolls the page.
+- **Undo / Redo:** always visible in the header; Ctrl+Z / Ctrl+Y also work.
+- The left sidebar displays clickable page thumbnails, rendered in idle batches.
+- Redact works on dragged text selections as well as selected page areas.
+
+Inline editing currently handles upright pages and horizontal text. OCR is
+needed for scanned text. Boxes keep their original font size; enlarge a box when
+more lines are needed. Edits that overlap another section are rejected. Fonts
+missing replacement glyphs cannot be silently substituted. While typing, the
+editor uses a sampled solid background; applying retains the PDF's actual
+background graphics. This is a first inline editor, not full Acrobat parity.
+
 Open a PDF, select a page in the sidebar, and use the ribbon tabs.
 In **Select text** mode, drag across characters, then click Highlight (or Ctrl+H
 or right-click → Highlight selected text). This highlights only that selection,
@@ -35,7 +58,7 @@ reported without changing the PDF. Paragraph reflow is not supported.
 page layout with pdf2docx. It is no longer the plain-text export used in build 1.
 Scanned documents need OCR first. Highly designed pages, unusual fonts and
 complex vector graphics may still differ from the PDF; review the result in Word.
-Ctrl+O opens, Ctrl+S exports, Ctrl+Z undoes the last change (up to 8 snapshots).
+Ctrl+O opens, Ctrl+S exports, Ctrl+Z undoes and Ctrl+Y redoes changes (up to 8 undo snapshots).
 Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 
 ## Feature progress

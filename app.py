@@ -31,6 +31,9 @@ import fitz
 from PIL import Image, ImageTk
 from core import PDF, page_numbers, images_to_pdf, office_to_pdf
 from text_tools import find_matches, replace_match, select_text
+from box_tools import text_sections
+from inline_editor import InlineEditor
+from thumbnails import Thumbnails
 
 
 class App(tk.Tk):
@@ -44,8 +47,16 @@ class App(tk.Tk):
         self.index = 0
         self.zoom = 1.0
         self.history = []
+        self.redo_history = []
         self.dirty = False
         self.selection = None
+        self.inline = None
+        self.context_frame = None
+        self.selected_text = ''
+        self.search_query = ''
+        self.search_matches = []
+        self.search_position = 0
+        self.search_window = None
         self.text_quads = []
         self.selection_mode = tk.StringVar(value='text')
         self.busy = False
@@ -67,21 +78,23 @@ class App(tk.Tk):
         header.pack(fill='x')
         ttk.Label(header, text='OpenPDF Studio', style='Header.TLabel').pack(side='left')
         ttk.Label(header, text='LOCAL DOCUMENT WORKSPACE').pack(side='right')
+        ttk.Button(header, text='Redo', command=lambda: self.guard(self.redo)).pack(side='right', padx=4)
+        ttk.Button(header, text='Undo', command=lambda: self.guard(self.undo)).pack(side='right', padx=4)
         tabs = ttk.Notebook(self)
         tabs.pack(fill='x', padx=12)
         groups = {
-            'File': [('Open', self.open), ('Save as', self.save), ('Undo', self.undo),
+            'File': [('Open', self.open), ('Save as', self.save), ('Undo', self.undo), ('Redo', self.redo),
                      ('New blank', self.new), ('Images to PDF', self.from_images),
                      ('Office to PDF', self.from_office), ('Batch compress', self.batch)],
             'Pages': [('Merge', self.merge), ('Extract / reorder', self.select), ('Split all', self.split),
                       ('Rotate', self.rotate), ('Delete page', self.delete), ('Blank page', self.blank),
                       ('Crop selection', self.crop), ('Bookmark', self.bookmark)],
-            'Edit': [('Add text', self.text), ('Replace text', self.replace), ('Add image', self.image),
+            'Edit': [('Edit text boxes', self.edit_mode), ('Add text', self.text), ('Replace text', self.replace), ('Add image', self.image),
                      ('Draw signature', self.signature), ('Highlight', self.highlight),
                      ('Comment', self.comment), ('Add link', self.link)],
             'Forms': [('Text field', lambda: self.field(False)), ('Checkbox', lambda: self.field(True)),
                       ('Fill fields', self.fill)],
-            'Protect': [('Redact selection', self.redact), ('Remove metadata / attachments', self.sanitize),
+            'Protect': [('Redact selected text / area', self.redact), ('Remove metadata / attachments', self.sanitize),
                         ('Password export', self.encrypt), ('Metadata', self.metadata)],
             'Convert': [('Export Word', self.docx), ('OCR pages', self.ocr),
                         ('Export text', self.txt), ('Export PNGs', self.png),
@@ -98,10 +111,8 @@ class App(tk.Tk):
         body.pack(fill='both', expand=True, padx=12, pady=10)
         side = ttk.Frame(body, width=180)
         ttk.Label(side, text='PAGES', padding=8).pack(fill='x')
-        self.pages = tk.Listbox(side, width=20, font=('Segoe UI', 11), borderwidth=0,
-                                selectbackground='#2563eb', exportselection=False)
+        self.pages = Thumbnails(side, self.go)
         self.pages.pack(fill='both', expand=True)
-        self.pages.bind('<<ListboxSelect>>', self.go)
         body.add(side, weight=0)
         viewer = ttk.Frame(body)
         nav = ttk.Frame(viewer)
@@ -123,9 +134,10 @@ class App(tk.Tk):
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<ButtonPress-1>', self.start_selection)
         self.canvas.bind('<B1-Motion>', self.drag_selection)
-        self.canvas.bind('<MouseWheel>', lambda e: self.canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
-        self.canvas.bind('<Button-4>', lambda e: self.canvas.yview_scroll(-1, 'units'))
-        self.canvas.bind('<Button-5>', lambda e: self.canvas.yview_scroll(1, 'units'))
+        self.canvas.bind('<ButtonRelease-1>', self.selection_popup)
+        self.canvas.bind('<MouseWheel>', self.wheel)
+        self.canvas.bind('<Button-4>', self.wheel)
+        self.canvas.bind('<Button-5>', self.wheel)
         menu = tk.Menu(self, tearoff=False)
         menu.add_command(label='Highlight selected text', command=lambda: self.guard(self.highlight))
         self.canvas.bind('<Button-3>', lambda e: menu.tk_popup(e.x_root, e.y_root))
@@ -135,6 +147,12 @@ class App(tk.Tk):
         self.bind('<Control-o>', lambda e: self.guard(self.open))
         self.bind('<Control-s>', lambda e: self.guard(self.save))
         self.bind('<Control-z>', lambda e: self.guard(self.undo))
+        self.bind('<Control-y>', lambda e: self.guard(self.redo))
+        self.bind('<Control-Shift-Z>', lambda e: self.guard(self.redo))
+        self.bind('<Control-f>', self.find_shortcut)
+        self.bind('<Control-MouseWheel>', self.wheel)
+        self.bind('<Control-Button-4>', self.wheel)
+        self.bind('<Control-Button-5>', self.wheel)
         self.bind('<Control-h>', lambda e: self.guard(self.highlight))
         self.after(100, self.poll)
 
@@ -142,6 +160,8 @@ class App(tk.Tk):
         if self.busy:
             return
         try:
+            if self.inline and action != self.inline.commit:
+                self.inline.commit()
             action()
         except Exception as exc:
             if '--self-test' in sys.argv:
@@ -167,7 +187,8 @@ class App(tk.Tk):
         if self.pdf:
             self.pdf.close()
         self.pdf, self.path = loaded, path
-        self.history, self.index, self.dirty = [], 0, False
+        self.history, self.redo_history, self.index, self.dirty = [], [], 0, False
+        self.search_query = ''
         self.refresh()
         self.status.set(f'Opened {Path(path).name}. Drag to select text; switch to Select area for placement/cropping.')
 
@@ -185,7 +206,8 @@ class App(tk.Tk):
             self.pdf.close()
         self.pdf = PDF()
         self.pdf.doc.new_page()
-        self.path, self.history, self.index, self.dirty = None, [], 0, True
+        self.path, self.history, self.redo_history, self.index, self.dirty = None, [], [], 0, True
+        self.search_query = ''
         self.refresh()
 
     def output(self, ext):
@@ -210,27 +232,37 @@ class App(tk.Tk):
             raise
         self.history.append(before)
         self.history = self.history[-8:]
+        self.redo_history.clear()
         self.dirty = True
         self.refresh()
         self.status.set(message)
 
     def undo(self):
         if self.history:
+            self.redo_history.append(self.pdf.bytes())
             self.pdf.restore(self.history.pop())
+            self.dirty = True
+            self.refresh()
+
+    def redo(self):
+        if self.redo_history:
+            self.history.append(self.pdf.bytes())
+            self.history = self.history[-8:]
+            self.pdf.restore(self.redo_history.pop())
             self.dirty = True
             self.refresh()
 
     def refresh(self):
         self.index = max(0, min(self.index, len(self.pdf.doc) - 1))
-        self.pages.delete(0, 'end')
-        for i in range(len(self.pdf.doc)):
-            self.pages.insert('end', f'  Page {i + 1}')
-        self.pages.selection_set(self.index)
+        self.pages.refresh(self.pdf, self.index)
+        self.search_matches = find_matches(self.pdf.doc, self.search_query)
+        self.search_position = min(self.search_position, max(0, len(self.search_matches) - 1))
         self.render()
 
     def render(self):
-        if not self.pdf:
+        if not self.pdf or self.inline:
             return
+        self.hide_context()
         pix = self.pdf.doc[self.index].get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
         self.photo = ImageTk.PhotoImage(Image.open(io.BytesIO(pix.tobytes('png'))))
         self.canvas.delete('all')
@@ -239,25 +271,85 @@ class App(tk.Tk):
         self.selection = None
         self.text_quads = []
         self.page_label.set(f'Page {self.index + 1} of {len(self.pdf.doc)} · {round(self.zoom * 100)}%')
+        for n, match in enumerate(self.search_matches):
+            if match['page'] != self.index:
+                continue
+            r = fitz.Rect(match['rect']) * self.pdf.doc[self.index].rotation_matrix
+            self.canvas.create_rectangle(r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
+                                         r.x1 * self.zoom + 20, r.y1 * self.zoom + 20,
+                                         fill='#fbbf24', stipple='gray50', outline='#ea580c' if n == self.search_position else '',
+                                         width=2, tags='search-result')
+        if self.selection_mode.get() == 'edit':
+            for section in text_sections(self.pdf.doc[self.index]):
+                r = fitz.Rect(section['rect']) * self.pdf.doc[self.index].rotation_matrix
+                self.canvas.create_rectangle(r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
+                                             r.x1 * self.zoom + 20, r.y1 * self.zoom + 20,
+                                             outline='#60a5fa', dash=(4, 3), tags='text-box')
 
     def go(self, event=None):
-        if self.busy or not self.pages.curselection() or not self.pdf:
+        if self.busy or self.pages.selected() is None or not self.pdf:
             return
-        self.index = self.pages.curselection()[0]
+        target = self.pages.selected()
+        if self.inline and target == self.index:
+            return
+        if self.inline:
+            try:
+                self.inline.commit()
+            except Exception as exc:
+                self.pages.select(self.index)
+                mb.showerror('Finish this edit', str(exc), parent=self)
+                return
+        self.index = target
         self.render()
 
     def navigate(self, delta):
         if self.pdf and not self.busy:
+            if self.inline:
+                self.guard(self.inline.commit)
+                if self.inline:
+                    return
             self.index = max(0, min(len(self.pdf.doc) - 1, self.index + delta))
             self.refresh()
 
     def scale(self, factor):
         if not self.busy:
+            if self.inline:
+                self.guard(self.inline.commit)
+                if self.inline:
+                    return
             self.zoom = max(0.3, min(3, self.zoom * factor))
             self.render()
 
+    def wheel(self, event):
+        up = getattr(event, 'num', None) == 4 or getattr(event, 'delta', 0) > 0
+        if event.state & 0x4:
+            self.scale(1.1 if up else 1 / 1.1)
+        elif event.widget is self.canvas:
+            self.canvas.yview_scroll(-3 if up else 3, 'units')
+        return 'break'
+
+    def find_shortcut(self, event=None):
+        self.guard(self.search)
+        return 'break'
+
     def start_selection(self, event):
         if self.busy:
+            return
+        self.hide_context()
+        if self.inline:
+            current = self.canvas.find_withtag('current')
+            if current and current[0] == self.inline.handle:
+                return
+            self.guard(self.inline.commit)
+            if self.inline:
+                return
+        if self.pdf and self.selection_mode.get() == 'edit':
+            point = fitz.Point((self.canvas.canvasx(event.x) - 20) / self.zoom,
+                               (self.canvas.canvasy(event.y) - 20) / self.zoom) * self.pdf.doc[self.index].derotation_matrix
+            for section in text_sections(self.pdf.doc[self.index]):
+                if fitz.Rect(section['rect']).contains(point):
+                    self.guard(lambda: self.begin_inline(section))
+                    break
             return
         self.origin = (self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
         self.canvas.delete('selection')
@@ -265,12 +357,19 @@ class App(tk.Tk):
         self.selection = None
 
     def clear_selection(self):
+        if self.inline:
+            self.guard(self.inline.commit)
+            if self.inline:
+                self.selection_mode.set('edit')
+                return
+        self.hide_context()
         self.canvas.delete('selection')
+        self.canvas.delete('text-box')
         self.text_quads = []
         self.selection = None
 
     def drag_selection(self, event):
-        if self.busy or not hasattr(self, 'origin'):
+        if self.busy or self.inline or self.selection_mode.get() == 'edit' or not hasattr(self, 'origin'):
             return
         x, y = self.origin
         x2, y2 = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
@@ -280,6 +379,7 @@ class App(tk.Tk):
             start = fitz.Point((x - 20) / self.zoom, (y - 20) / self.zoom) * page.derotation_matrix
             end = fitz.Point((x2 - 20) / self.zoom, (y2 - 20) / self.zoom) * page.derotation_matrix
             self.text_quads, text = select_text(page, start, end)
+            self.selected_text = text
             for quad in self.text_quads:
                 r = quad.rect * page.rotation_matrix
                 self.canvas.create_rectangle(r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
@@ -290,6 +390,45 @@ class App(tk.Tk):
         self.canvas.create_rectangle(x, y, x2, y2, outline='#2563eb', width=2, tags='selection')
         self.selection = fitz.Rect((min(x, x2) - 20) / self.zoom, (min(y, y2) - 20) / self.zoom,
                                    (max(x, x2) - 20) / self.zoom, (max(y, y2) - 20) / self.zoom)
+
+    def edit_mode(self):
+        self.require()
+        self.selection_mode.set('edit')
+        self.render()
+        self.status.set('Edit text boxes: click an outlined section and type directly. Click outside to apply; Escape cancels.')
+
+    def begin_inline(self, section):
+        self.hide_context()
+        self.clear_selection()
+        self.inline = InlineEditor(self, section)
+
+    def hide_context(self):
+        self.canvas.delete('context')
+        if self.context_frame:
+            self.context_frame.destroy()
+            self.context_frame = None
+
+    def selection_popup(self, event=None):
+        if self.inline or self.busy or not self.text_quads or not self.pdf:
+            return
+        self.hide_context()
+        self.context_frame = ttk.Frame(self.canvas, padding=3)
+        text = self.selected_text
+        def copy():
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.hide_context()
+        def edit():
+            sections = text_sections(self.pdf.doc[self.index])
+            candidates = [s for s in sections if all(fitz.Rect(s['rect']).contains(q.rect) for q in self.text_quads)]
+            if len(candidates) != 1:
+                raise ValueError('Select text within a single section to edit it, or use Edit text boxes.')
+            self.begin_inline(candidates[0])
+        for title, action in [('Edit section', edit), ('Highlight', self.highlight), ('Redact', self.redact), ('Copy', copy), ('Cancel', self.clear_selection)]:
+            ttk.Button(self.context_frame, text=title, command=lambda a=action: self.guard(a)).pack(side='left')
+        r = self.text_quads[-1].rect * self.pdf.doc[self.index].rotation_matrix
+        self.canvas.create_window(max(self.canvas.canvasx(0), r.x0 * self.zoom + 20), r.y1 * self.zoom + 26,
+                                  anchor='nw', window=self.context_frame, tags='context')
 
     def rect(self):
         self.require()
@@ -513,6 +652,18 @@ class App(tk.Tk):
         self.change(lambda: [self.pdf.fill_field(*v) for v in values])
 
     def redact(self):
+        self.require()
+        if self.text_quads:
+            quads = list(self.text_quads)
+            if mb.askyesno('Redact selected text', 'Permanently remove the selected characters in the exported PDF?', parent=self):
+                def remove():
+                    page = self.pdf.doc[self.index]
+                    for quad in quads:
+                        r = quad.rect + (0.05, 0.05, -0.05, -0.05)
+                        page.add_redact_annot(r, fill=(0, 0, 0))
+                    page.apply_redactions(images=0, graphics=0, text=0)
+                self.change(remove, 'Selected text redacted. Save as to export the cleaned PDF.')
+            return
         rect = self.rect()
         if mb.askyesno('Redact', 'Remove text, image pixels, and intersecting graphics in this area? Save as a new file afterward.', parent=self):
             self.change(lambda: self.pdf.redact(self.index, rect), 'Area redacted. Save as to write a cleaned PDF. Other copies and metadata are separate.')
@@ -659,13 +810,69 @@ class App(tk.Tk):
 
     def search(self):
         self.require()
-        text = sd.askstring('Search', 'Search all pages:', parent=self)
-        if text:
-            hits = [i + 1 for i, p in enumerate(self.pdf.doc) if p.search_for(text)]
-            self.status.set('Found on pages: ' + ', '.join(map(str, hits)) if hits else 'No matches. Scans may need OCR.')
-            if hits:
-                self.index = hits[0] - 1
-                self.refresh()
+        if self.search_window and self.search_window.winfo_exists():
+            self.search_window.lift()
+            self.find_entry.focus_set()
+            return
+        window = tk.Toplevel(self)
+        self.search_window = window
+        window.title('Find text · Ctrl+F')
+        window.transient(self)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=12)
+        frame.pack()
+        query = tk.StringVar(value=self.search_query)
+        result = tk.StringVar(value='Type to highlight matching words on the page.')
+        self.find_entry = ttk.Entry(frame, textvariable=query, width=32)
+        self.find_entry.grid(row=0, column=0, columnspan=3, sticky='ew', pady=5)
+        pending = [None]
+        def show(delta=0):
+            if self.busy or self.inline:
+                return
+            if self.search_matches:
+                self.search_position = (self.search_position + delta) % len(self.search_matches)
+                match = self.search_matches[self.search_position]
+                self.index = match['page']
+                self.pages.select(self.index)
+                self.render()
+                r = fitz.Rect(match['rect']) * self.pdf.doc[self.index].rotation_matrix
+                bounds = self.canvas.bbox('all')
+                self.canvas.yview_moveto(max(0, (r.y0 * self.zoom + 20 - self.canvas.winfo_height() / 3) / max(1, bounds[3])))
+                self.canvas.xview_moveto(max(0, (r.x0 * self.zoom + 20 - self.canvas.winfo_width() / 3) / max(1, bounds[2])))
+                result.set(f'{self.search_position + 1} of {len(self.search_matches)} · Page {self.index + 1}')
+            else:
+                self.render()
+                result.set('No matches. Scanned pages may need OCR.')
+        def perform():
+            pending[0] = None
+            if not self.pdf or self.busy:
+                return
+            self.search_query = query.get()
+            self.search_matches = find_matches(self.pdf.doc, self.search_query)
+            self.search_position = 0
+            show()
+        def changed(*_):
+            if pending[0]:
+                self.after_cancel(pending[0])
+            pending[0] = self.after(200, perform)
+        def close():
+            if pending[0]:
+                self.after_cancel(pending[0])
+            self.search_query, self.search_matches = '', []
+            self.search_window = None
+            window.destroy()
+            self.render()
+        query.trace_add('write', changed)
+        ttk.Button(frame, text='Previous', command=lambda: show(-1)).grid(row=1, column=0)
+        ttk.Button(frame, text='Next', command=lambda: show(1)).grid(row=1, column=1)
+        ttk.Button(frame, text='Close', command=close).grid(row=1, column=2)
+        ttk.Label(frame, textvariable=result).grid(row=2, column=0, columnspan=3, pady=8)
+        self.find_entry.bind('<Return>', lambda e: show(1))
+        window.bind('<Escape>', lambda e: close())
+        window.protocol('WM_DELETE_WINDOW', close)
+        self.find_entry.focus_set()
+        if self.search_query:
+            perform()
 
     def watermark(self):
         self.require()
@@ -697,6 +904,10 @@ class App(tk.Tk):
     def quit_app(self):
         if self.busy:
             mb.showinfo('Working', 'Wait for the current operation to finish.', parent=self)
+        elif self.inline:
+            self.guard(self.inline.commit)
+            if not self.inline:
+                self.quit_app()
         elif self.confirm_discard():
             if self.pdf:
                 self.pdf.close()

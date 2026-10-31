@@ -96,6 +96,16 @@ def font_for(doc, page, style, text):
                             for unicode, gid, *_ in trace['chars']:
                                 if 0 <= unicode <= 0xFFFF and 0 < gid < len(tt.getGlyphOrder()):
                                     mapping[unicode] = tt.getGlyphName(gid)
+                # Some PDF subsets have a Macintosh-only cmap. Recover its
+                # ASCII glyphs after verifying it agrees with observed PDF text.
+                # Do not guess the custom high-byte encoding used by subsets.
+                for table in tt['cmap'].tables:
+                    if table.platformID == 1 and table.platEncID == 0:
+                        ascii_map = {code: glyph for code, glyph in table.cmap.items() if 32 <= code < 127}
+                        shared = set(ascii_map) & set(mapping)
+                        if shared and all(ascii_map[c] == mapping[c] for c in shared):
+                            for code, glyph in ascii_map.items():
+                                mapping.setdefault(code, glyph)
                 cmap = CmapSubtable.newSubtable(4)
                 cmap.platformID, cmap.platEncID, cmap.language = 3, 1, 0
                 cmap.cmap = mapping

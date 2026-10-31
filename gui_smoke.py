@@ -2,6 +2,9 @@
 import tempfile
 from pathlib import Path
 import fitz
+import tkinter as tk
+from types import SimpleNamespace
+from unittest.mock import patch
 from docx import Document
 from text_tools import find_matches
 
@@ -48,3 +51,76 @@ def exercise_app(app):
         editable_text = ''.join(node.text or '' for node in doc.element.xpath('.//w:t'))
         print('Packaged Word export editable text:', repr(editable_text))
         assert 'fixed' in editable_text, 'Replacement missing from editable Word text'
+
+    # Close search/replace dialogs and exercise direct section editing.
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    p = app.pdf.doc[0]
+    p.insert_text((50, 100), 'Editable text', fontname='hebo', fontsize=18)
+    p.insert_text((50, 250), 'Keep me', fontsize=12)
+    app.refresh()
+    app.update()
+    assert app.pages.images, 'Sidebar thumbnail was not rendered'
+    app.edit_mode()
+    assert app.canvas.find_withtag('text-box'), 'Edit mode has no text box outlines'
+    app.canvas.event_generate('<ButtonPress-1>', x=80, y=115)
+    app.update()
+    assert app.inline is not None, 'Click did not open inline editor'
+    editor = app.inline
+    editor.widget.focus_force()
+    editor.widget.mark_set('insert', '1.4')
+    editor.widget.insert('insert', 'X')
+    app.update()
+    assert editor.widget.get('1.0', 'end-1c') == 'EditXable text'
+    editor.widget.event_generate('<BackSpace>')
+    app.update()
+    assert editor.widget.get('1.0', 'end-1c') == 'Editable text', 'Backspace did not edit live'
+    editor.widget.delete('1.0', 'end')
+    editor.widget.insert('1.0', 'Live edit')
+    editor.key_commit()
+    app.update()
+    assert 'Live edit' in app.pdf.doc[0].get_text()
+    app.undo()
+    assert 'Editable text' in app.pdf.doc[0].get_text()
+    app.redo()
+    assert 'Live edit' in app.pdf.doc[0].get_text()
+
+    # Actual Ctrl+F opens find; results are page overlays rather than PDF edits.
+    app.focus_force()
+    app.event_generate('<Control-f>')
+    app.update()
+    assert app.search_window is not None, 'Ctrl+F did not open find'
+    app.find_entry.insert(0, 'Live')
+    app.after(300, app.quit)
+    app.mainloop()
+    app.update()
+    assert app.canvas.find_withtag('search-result'), 'Find did not highlight words on page'
+    zoom = app.zoom
+    app.wheel(SimpleNamespace(state=4, delta=120, num=0, widget=app.canvas))
+    assert app.zoom > zoom, 'Ctrl+wheel did not zoom'
+    app.scale(1 / 1.1)
+
+    # Drag selection offers contextual actions, including text redaction.
+    app.selection_mode.set('text')
+    app.clear_selection()
+    app.render()
+    app.canvas.xview_moveto(0)
+    app.canvas.yview_moveto(0)
+    r = app.pdf.doc[0].search_for('Live')[0]
+    app.canvas.event_generate('<ButtonPress-1>', x=int(r.x0 + 21), y=int(r.y0 + 22))
+    app.canvas.event_generate('<B1-Motion>', x=int(r.x1 + 19), y=int(r.y0 + 22))
+    app.canvas.event_generate('<ButtonRelease-1>', x=int(r.x1 + 19), y=int(r.y0 + 22))
+    app.update()
+    assert app.context_frame is not None, 'Selection did not show contextual actions'
+    labels = [w.cget('text') for w in app.context_frame.winfo_children()]
+    assert all(s in labels for s in ('Edit section', 'Highlight', 'Redact', 'Copy'))
+    from tkinter import messagebox
+    with patch.object(messagebox, 'askyesno', return_value=True):
+        app.redact()
+    assert not app.pdf.doc[0].search_for('Live'), 'Selected text was not redacted'
+    assert app.pdf.doc[0].search_for('Keep me'), 'Text redaction affected another section'
+    app.undo()
+    assert app.pdf.doc[0].search_for('Live')
