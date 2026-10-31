@@ -5,7 +5,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk, font as tkfont
 import fitz
-from PIL import Image
+from PIL import Image, ImageTk
 from box_tools import edit_section
 from text_tools import font_for
 
@@ -47,6 +47,14 @@ class InlineEditor:
         img = Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB')
         colors = img.getcolors(img.width * img.height)
         background = '#%02x%02x%02x' % max(colors, key=lambda x: x[0])[1] if colors else '#ffffff'
+        # A temporary copy supplies a backdrop without this section, so moving
+        # it does not leave a second copy visible at the old position.
+        with fitz.open(stream=app.pdf.bytes(), filetype='pdf') as preview:
+            edit_section(preview, self.index, section, '')
+            pix = preview[self.index].get_pixmap(matrix=fitz.Matrix(app.zoom, app.zoom), alpha=False)
+        app.photo = ImageTk.PhotoImage(Image.open(io.BytesIO(pix.tobytes('png'))))
+        app.canvas.delete('all')
+        app.canvas.create_image(20, 20, anchor='nw', image=app.photo)
         self.widget = tk.Text(app.canvas, font=self.font, foreground=f'#{style["color"]:06x}',
                               background=background, insertbackground=f'#{style["color"]:06x}',
                               selectbackground='#2563eb', selectforeground='white',
@@ -61,13 +69,21 @@ class InlineEditor:
         self.toolbar = ttk.Frame(app.canvas, padding=3)
         ttk.Button(self.toolbar, text='Apply', command=lambda: app.guard(self.commit)).pack(side='left')
         ttk.Button(self.toolbar, text='Cancel', command=self.cancel).pack(side='left')
-        ttk.Label(self.toolbar, text=f'{style["size"]:g} pt · drag corner to resize').pack(side='left', padx=6)
+        ttk.Label(self.toolbar, text=f'{style["size"]:g} pt · drag blue border to move · corner to resize').pack(side='left', padx=6)
         self.toolbar_id = app.canvas.create_window(self.rect.x0 * app.zoom + 18,
                                                    max(0, self.rect.y0 * app.zoom - 18),
-                                                   window=self.toolbar, anchor='sw', tags='inline')
+                                                   window=self.toolbar, anchor='nw', tags='inline')
+        self.edges = [app.canvas.create_rectangle(0, 0, 0, 0, fill='#2563eb', outline='', tags='inline') for _ in range(4)]
+        self.drag = None
         self.handle = app.canvas.create_rectangle(0, 0, 0, 0, fill='#2563eb', outline='white', tags='inline')
         app.canvas.tag_bind(self.handle, '<B1-Motion>', self.resize)
         app.canvas.tag_bind(self.handle, '<ButtonPress-1>', lambda e: 'break')
+        self.interactive_items = set(self.edges + [self.handle])
+        for edge in self.edges:
+            app.canvas.tag_bind(edge, '<ButtonPress-1>', self.start_move)
+            app.canvas.tag_bind(edge, '<B1-Motion>', self.move)
+            app.canvas.tag_bind(edge, '<Enter>', lambda e: app.canvas.configure(cursor='fleur'))
+            app.canvas.tag_bind(edge, '<Leave>', lambda e: app.canvas.configure(cursor=''))
         self.position()
         self.widget.bind('<Control-Return>', lambda e: self.key_commit())
         self.widget.bind('<Escape>', lambda e: self.key_cancel())
@@ -86,12 +102,45 @@ class InlineEditor:
 
     def position(self):
         z = self.app.zoom
+        canvas = self.app.canvas
         width = max(35, self.rect.width * z + 8)
         height = max(self.font.metrics('linespace') + 6, self.rect.height * z + 6)
-        self.app.canvas.itemconfigure(self.window, width=width, height=height)
+        x0, y0 = self.rect.x0 * z + 18, self.rect.y0 * z + 18
+        canvas.coords(self.window, x0, y0)
+        canvas.itemconfigure(self.window, width=width, height=height)
+        for item, coords in zip(self.edges, [(x0-3, y0-3, x0+width+3, y0),
+                                             (x0-3, y0+height, x0+width+3, y0+height+3),
+                                             (x0-3, y0, x0, y0+height),
+                                             (x0+width, y0, x0+width+3, y0+height)]):
+            canvas.coords(item, *coords)
+            canvas.tag_raise(item)
         x, y = self.rect.x1 * z + 24, self.rect.y1 * z + 24
         self.app.canvas.coords(self.handle, x - 5, y - 5, x + 5, y + 5)
         self.app.canvas.tag_raise(self.handle)
+        self.toolbar.update_idletasks()
+        left, top = canvas.canvasx(0), canvas.canvasy(0)
+        tx = max(left, min(x0, left + canvas.winfo_width() - self.toolbar.winfo_reqwidth() - 8))
+        ty = y0 - self.toolbar.winfo_reqheight() - 12
+        if ty < top:
+            ty = y0 + height + 14
+        canvas.coords(self.toolbar_id, tx, ty)
+        canvas.tag_raise(self.toolbar_id)
+
+    def start_move(self, event):
+        self.drag = (self.app.canvas.canvasx(event.x), self.app.canvas.canvasy(event.y), fitz.Rect(self.rect))
+        return 'break'
+
+    def move(self, event):
+        if not self.drag:
+            return 'break'
+        x, y, original = self.drag
+        bounds = self.app.pdf.doc[self.index].rect
+        dx = max(-original.x0, min(bounds.width - original.x1, (self.app.canvas.canvasx(event.x) - x) / self.app.zoom))
+        dy = max(-original.y0, min(bounds.height - original.y1, (self.app.canvas.canvasy(event.y) - y) / self.app.zoom))
+        self.rect = original + (dx, dy, dx, dy)
+        self.position()
+        self.app.status.set('Moving existing PDF text. Click Apply to keep this position; Escape cancels.')
+        return 'break'
 
     def resize(self, event):
         page = self.app.pdf.doc[self.index]
@@ -144,6 +193,7 @@ class InlineEditor:
             return
         self.closed = True
         self.app.canvas.delete('inline')
+        self.app.canvas.configure(cursor='')
         self.widget.destroy()
         self.toolbar.destroy()
         if self.font_handle:

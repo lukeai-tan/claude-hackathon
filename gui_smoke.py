@@ -125,6 +125,33 @@ def exercise_app(app):
     app.undo()
     assert app.pdf.doc[0].search_for('Live')
 
+    # Native PDF sections move by their border, and shorter edits compact.
+    app.edit_mode()
+    r = app.pdf.doc[0].search_for('Live edit')[0]
+    app.canvas.event_generate('<ButtonPress-1>', x=int(r.x0 + 24), y=int(r.y0 + 25))
+    app.update()
+    editor = app.inline
+    assert editor is not None
+    original = fitz.Rect(editor.rect)
+    x, y = int(original.x0 + 45), int(original.y0 + 16)
+    app.canvas.event_generate('<Motion>', x=x, y=y)
+    app.canvas.event_generate('<ButtonPress-1>', x=x, y=y)
+    app.canvas.event_generate('<B1-Motion>', x=x + 60, y=y + 40)
+    app.canvas.event_generate('<ButtonRelease-1>', x=x + 60, y=y + 40)
+    app.update()
+    assert editor.rect.x0 > original.x0, 'Native PDF box border was not draggable'
+    editor.widget.delete('1.0', 'end')
+    editor.widget.insert('1.0', '\nFew\n\n')
+    editor.key_commit()
+    app.update()
+    moved = app.pdf.doc[0].search_for('Few')
+    assert len(moved) == 1 and moved[0].x0 > original.x0
+    assert not app.pdf.doc[0].search_for('Live edit'), 'Moving native text left a duplicate'
+    app.undo()
+    assert app.pdf.doc[0].search_for('Live edit')
+    app.redo()
+    assert app.pdf.doc[0].search_for('Few')
+
     # Create a box using an actual canvas drag, then format only a selection.
     from rich_boxes import boxes
     from tkinter import colorchooser

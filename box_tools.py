@@ -10,6 +10,32 @@ def style_key(style):
     return tuple(style.get(k) for k in ('font', 'size', 'color', 'alpha', 'flags'))
 
 
+def paragraph_groups(source_lines):
+    """Same style does not make side-by-side cells a multiline paragraph."""
+    groups = []
+    for line in source_lines:
+        if not any(s['chars'] for s in line['spans']):
+            continue
+        if groups:
+            previous = groups[-1][-1]
+            a, b = fitz.Rect(previous['bbox']), fitz.Rect(line['bbox'])
+            first = next(s for s in line['spans'] if s['chars'])
+            prior = next(s for s in previous['spans'] if s['chars'])
+            gap = first['chars'][0]['origin'][1] - prior['chars'][0]['origin'][1]
+            overlap = min(a.x1, b.x1) - max(a.x0, b.x0)
+            aligned = overlap > min(a.width, b.width) * .3 or abs(a.x0 - b.x0) < first['size']
+            if .5 < gap <= first['size'] * 3 and aligned:
+                groups[-1].append(line)
+                continue
+        groups.append([line])
+    return groups
+
+
+def compact_text(text):
+    """Collapse unused lines inside the edited section, retaining nonblank rows."""
+    return '\n'.join(line.rstrip() for line in text.replace('\r\n', '\n').replace('\r', '\n').split('\n') if line.strip())
+
+
 def text_sections(page):
     result = []
     with without_boxes(page):
@@ -23,7 +49,7 @@ def text_sections(page):
             continue
         homogeneous = len({style_key(s) for s in spans}) == 1
         # Mixed formatting remains separate, independently editable runs.
-        groups = [source_lines] if homogeneous else [
+        groups = paragraph_groups(source_lines) if homogeneous else [
             [dict(line, spans=[span], bbox=span['bbox'])]
             for line in source_lines for span in line['spans'] if span['chars']]
         for group in groups:
@@ -70,6 +96,16 @@ def text_sections(page):
                 break
             if merged:
                 break
+    for section in result:
+        # Merged PDF objects can arrive out of reading order. Measure individual
+        # glyph ascents/descents and actual baseline gaps, never a whole block
+        # against whichever character happened to be extracted last.
+        chars = section['chars']
+        baselines = sorted({round(c['origin'][1], 2) for c in chars})
+        gaps = [b - a for a, b in zip(baselines, baselines[1:]) if b - a > .5]
+        section['ascent'] = max(c['origin'][1] - c['bbox'][1] for c in chars)
+        section['descent'] = max(c['bbox'][3] - c['origin'][1] for c in chars)
+        section['line_height'] = statistics.median(gaps) if gaps else (section['ascent'] + section['descent']) * 1.1
     return result
 
 
@@ -119,16 +155,22 @@ def edit_section(doc, index, section, text, rect=None):
     style = section['style']
     font = data = alias = None
     placements = []
+    text = compact_text(text)
     if text:
         clean = text.replace('\n', '').replace('\r', '').replace('\t', ' ')
         font, data, alias = font_for(doc, page, style, clean)
         wrapped = wrap_text(text, font, style['size'], target.width)
-        offset = section['origin'][1] - original.y0
+        offset = section.get('ascent', section['origin'][1] - original.y0)
         y = target.y0 + offset
-        below_baseline = max(0, original.y1 - section['chars'][-1]['origin'][1])
+        below_baseline = section.get('descent', max(c['bbox'][3] - c['origin'][1] for c in section['chars']))
         line_height = section['line_height']
-        if y + max(0, len(wrapped) - 1) * line_height + below_baseline > target.y1 + 0.5:
-            raise ValueError('Text needs more height at its original size. Drag the box’s lower-right corner downward.')
+        required_bottom = y + max(0, len(wrapped) - 1) * line_height + below_baseline
+        if required_bottom > bounds.y1 + .5:
+            raise ValueError('Text needs more height than remains on this page. Widen the box, move it upward or shorten the text.')
+        # Native PDF boxes are detected glyph bounds, not fixed-height frames.
+        # Let the replacement grow into free space, preserving font size. Its
+        # detected bounds naturally shrink again when the text becomes shorter.
+        target.y1 = max(target.y1, required_bottom)
         for row in wrapped:
             if row:
                 occupied = fitz.Rect(target.x0, y - offset,

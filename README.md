@@ -42,6 +42,11 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
   The lower-right handle resizes the box and changes wrapping. Click outside,
   Apply, or Ctrl+Enter to apply; Escape cancels. Ctrl+Z/Ctrl+Y work within the
   active editor. The exported PDF reuses the original embedded font and background.
+  Drag the blue border to move **existing PDF sections**, too. Shorter edits
+  collapse unused blank lines within that section and their bounds shrink to the
+  remaining text. Narrower boxes expand vertically into available space at the
+  original font size; page edges and neighbouring sections are still protected.
+  Separate table cells and side-by-side footer text remain individual sections.
 - Selecting text opens a compact **Edit section / Highlight / Redact / Copy**
   toolbar next to the selection. Mixed font styles become separate editable runs.
 - **Ctrl+F:** live find with yellow on-page matches, an orange active match, and
@@ -52,8 +57,8 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
 - Redact works on dragged text selections as well as selected page areas.
 
 Inline editing currently handles upright pages and horizontal text. OCR is
-needed for scanned text. Existing PDF sections keep their original font size; enlarge a box when
-more lines are needed. Edits that overlap another section are rejected. Fonts
+needed for scanned text. Existing PDF sections keep their original font size.
+Edits that overlap another section are rejected. Fonts
 missing replacement glyphs cannot be silently substituted. While typing, the
 editor uses a sampled solid background; applying retains the PDF's actual
 background graphics. Added boxes offer Arial, Times New Roman and Courier New

@@ -53,4 +53,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = 'build-${{ github.run_number }}'
-          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Windows portable EXE: Pen button for freehand scribbling with ink colour/thickness; drag sidebar thumbnails to reorder pages; create, move and resize live text boxes; format selected letters; choose text colour, box fill, outline and alignment. Includes undo/redo, editable Word export, PDF text selection/search/redaction and English OCR. See README for limits. Unsigned executable.'
+          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Fixes false text-height errors: shorter native PDF edits collapse unused lines; narrower sections grow into free space; table cells remain separate. Drag existing PDF text sections by their blue border, preserving font and background. Includes styled added boxes, page thumbnail reordering, freehand Pen, undo/redo, Word export and OCR. See README for limits. Unsigned executable.'
