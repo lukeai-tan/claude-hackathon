@@ -1,0 +1,6 @@
+import {useRef} from 'react';
+import {ImagePlus} from 'lucide-react';
+import {useEditor} from '../store/editor';
+import {insertImageFiles,addElements} from '../store/actions';
+import {makeImage} from '../model/factory';
+export function UploadsPanel(){const deck=useEditor(s=>s.deck)!,input=useRef<HTMLInputElement>(null);return <div className="studio-content"><button className="btn primary full" onClick={()=>input.current?.click()}><ImagePlus size={16}/>Upload images</button><input hidden ref={input} type="file" accept="image/*" multiple onChange={e=>{void insertImageFiles(Array.from(e.target.files??[]));e.target.value='';}}/><p className="studio-lead">Your images, ready to reuse.</p><div className="upload-grid">{Object.values(deck.assets).map(a=><button key={a.id} title={`Add ${a.name}`} onClick={()=>{const k=Math.min(deck.size.w*.5/a.w,deck.size.h*.6/a.h);addElements([makeImage(a.id,(deck.size.w-a.w*k)/2,(deck.size.h-a.h*k)/2,a.w*k,a.h*k,{alt:a.name})]);}}><img src={a.dataUrl} alt={a.name}/><span>{a.name}</span></button>)}</div>{!Object.keys(deck.assets).length&&<div className="studio-empty">Drop images onto your slide, paste from your clipboard, or upload a file here.</div>}<p className="studio-footnote">Images stay on this device. AI requests send slide text and theme settings, not your uploaded images.</p></div>;}

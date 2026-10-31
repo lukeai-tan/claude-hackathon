@@ -1,60 +1,165 @@
-name: Build Windows EXE
+name: OpenSuite build and release
 on:
   push:
     branches: [master]
   workflow_dispatch:
 permissions:
   contents: write
+  pages: write
+  id-token: write
 concurrency:
-  group: windows-${{ github.ref }}
+  group: opensuite-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  build:
-    runs-on: windows-latest
+  verify:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source-code/OpenSlides/package-lock.json
+      - run: npm ci --prefix source-code/OpenSlides
+      - run: npm test
+      - run: npm test --prefix source-code/OpenSlides
+      - run: npm run build:web
+      - run: npm install --prefix source-code/OpenSlides/.qa --no-package-lock playwright@1.62.1
+      - run: npx --prefix source-code/OpenSlides/.qa playwright install --with-deps chromium
+      - name: Browser checks
+        shell: bash
+        run: |
+          npm run dev --prefix source-code/OpenSlides -- --host 127.0.0.1 > /tmp/openslides-vite.log 2>&1 &
+          python3 -m http.server 4173 --directory site > /tmp/opensuite-http.log 2>&1 &
+          for attempt in {1..30}; do curl --silent --fail http://127.0.0.1:5173 > /dev/null && break; sleep 1; done
+          (cd source-code/OpenSlides && node scripts/browser-smoke.mjs)
+          node scripts/home-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Browser-screenshots
+          path: |
+            source-code/OpenSlides/studio-*.png
+            opensuite-home-*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenSuite-website
+          path: site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+  windows:
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source-code/OpenSlides/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-      - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Test PDF engine
-        run: python -m unittest discover -s tests -v
-      - name: Benchmark text editing engine
-        run: python benchmarks/editor.py
-      - name: Install OCR runtime
+          cache-dependency-path: source-code/OpenPDF/requirements.txt
+      - run: npm ci --prefix source-code/OpenSlides
+      - run: npm run desktop:install --prefix source-code/OpenSlides
+      - run: python -m pip install -r source-code/OpenPDF/requirements.txt
+      - name: PDF engine tests and benchmarks
+        working-directory: source-code/OpenPDF
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw 'PDF tests failed' }
+          python benchmarks/editor.py
+          if ($LASTEXITCODE -ne 0) { throw 'PDF benchmark failed' }
+      - name: Install bundled OCR runtime
         run: choco install tesseract --yes --no-progress
-      - name: Test desktop controls before packaging
+      - name: Check OpenPDF workspace
+        working-directory: source-code/OpenPDF
+        timeout-minutes: 3
         env:
           OPENPDF_UI_CAPTURE: '1'
-        timeout-minutes: 2
-        shell: pwsh
         run: |
           python app.py --self-test
-          Get-Content smoke-output.log
-          if ($LASTEXITCODE -ne 0) { throw 'Source GUI smoke test failed' }
-      - name: Build executable with English OCR
-        shell: pwsh
+          $result = $LASTEXITCODE
+          Get-Content smoke-output.log | Where-Object { $_ -notmatch '^UI_CAPTURE' }
+          if ($result -ne 0) { throw 'Source GUI check failed' }
+      - name: Build OpenPDF with OCR
+        working-directory: source-code/OpenPDF
         run: |
           $ocrPath = 'C:\Program Files\Tesseract-OCR'
-          if (!(Test-Path "$ocrPath\tesseract.exe")) { throw 'Tesseract installation missing' }
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF-Studio --collect-all pymupdf --collect-all pdf2docx --collect-submodules fontTools.ttLib.tables --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
-      - name: Test packaged executable
-        timeout-minutes: 5
-        shell: pwsh
+          if (!(Test-Path "$ocrPath\tesseract.exe")) { throw 'Tesseract missing' }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF --collect-all pymupdf --collect-all pdf2docx --collect-submodules fontTools.ttLib.tables --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
+          if ($LASTEXITCODE -ne 0) { throw 'OpenPDF build failed' }
+      - name: Build standalone OpenSlides
+        run: npm run desktop:build --prefix source-code/OpenSlides
+      - name: Check standalone OpenSlides
+        working-directory: source-code/OpenSlides
+        timeout-minutes: 3
         run: |
-          $process = Start-Process -FilePath 'dist\OpenPDF-Studio.exe' -ArgumentList '--self-test' -Wait -PassThru
-          if (Test-Path smoke-output.log) { Get-Content smoke-output.log }
-          if ($process.ExitCode -ne 0) { throw "Executable smoke test failed: $($process.ExitCode)" }
+          $app = Start-Process -FilePath 'release/win-unpacked/OpenSlides.exe' -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($app.ExitCode -ne 0) { throw 'OpenSlides launch failed' }
+      - name: Build combined OpenSuite
+        run: npm run build:desktop
+      - name: Check suite and both bundled editors
+        timeout-minutes: 5
+        run: |
+          $app = Start-Process -FilePath 'release/win-unpacked/OpenSuite.exe' -ArgumentList '--smoke-test' -PassThru -Wait
+          if (Test-Path opensuite-smoke.json) { Get-Content opensuite-smoke.json }
+          if ($app.ExitCode -ne 0) { throw 'OpenSuite launch or bundled editor check failed' }
+      - name: Collect standalone apps and checksums
+        run: |
+          Copy-Item source-code/OpenPDF/dist/OpenPDF.exe release/
+          Copy-Item source-code/OpenSlides/release/*.exe release/
+          Get-ChildItem release/*.exe | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-checks
+          path: |
+            source-code/OpenPDF/openpdf-*.png
+            source-code/OpenPDF/smoke-output.log
+            opensuite-*.png
+            opensuite-smoke.json
+            opensuite-pdf-check.log
       - uses: actions/upload-artifact@v4
         with:
-          name: OpenPDF-Studio-Windows
-          path: dist/OpenPDF-Studio.exe
-      - name: Publish downloadable executable
+          name: OpenSuite-Windows-x64
+          path: |
+            release/*.exe
+            release/SHA256SUMS.txt
+      - name: Publish Windows release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
-          $tag = 'build-${{ github.run_number }}'
-          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'UI and text-editing fixes: DPI-aware controls with separate UI fonts and compact toolbars; active-font-sized caret; automatic added-box sizing without reducing font size; overlapping native text sections remain independently editable. Retains lightweight drag frames, caches and single-page refresh. Source and packaged GUI/performance tests run in CI. Unsigned executable.'
+          $tag = 'opensuite-v0.3.0-${{ github.run_number }}'
+          gh release create $tag release/*.exe release/SHA256SUMS.txt --target '${{ github.sha }}' --title 'OpenSuite 0.3.0 — Windows suite' --notes-file RELEASE-NOTES.md --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+  homepage:
+    needs: [verify, windows]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/github-script@v7
+        id: pages
+        with:
+          script: |
+            try {
+              await github.request('GET /repos/{owner}/{repo}/pages', context.repo);
+              core.setOutput('enabled', 'true');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setOutput('enabled', 'false');
+              core.notice('Homepage is built and included in OpenSuite. To publish the web version, a repository owner must enable Settings > Pages > GitHub Actions, then rerun this workflow.');
+            }
+      - uses: actions/configure-pages@v5
+        if: steps.pages.outputs.enabled == 'true'
+      - uses: actions/deploy-pages@v4
+        if: steps.pages.outputs.enabled == 'true'
+        id: deployment

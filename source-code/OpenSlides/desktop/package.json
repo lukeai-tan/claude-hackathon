@@ -1,0 +1,9 @@
+{
+  "name": "openslides-desktop-tools",
+  "private": true,
+  "version": "0.2.0",
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.0.12"
+  }
+}
