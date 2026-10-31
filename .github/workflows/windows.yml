@@ -53,4 +53,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = 'build-${{ github.run_number }}'
-          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Windows portable EXE with editable Word layout conversion, individual styled text replacement, drag-selected highlights, and English OCR. See README for limits. Unsigned executable.'
+          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Windows portable EXE: drag sidebar thumbnails to reorder pages; create, move and resize live text boxes; format selected letters; choose text colour, box fill, outline and alignment. Includes undo/redo, editable Word export, PDF text selection/search/redaction and English OCR. See README for limits. Unsigned executable.'

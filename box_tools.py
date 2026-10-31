@@ -3,6 +3,7 @@ import re
 import statistics
 import fitz
 from text_tools import font_for
+from rich_boxes import without_boxes, apply_redactions
 
 
 def style_key(style):
@@ -11,7 +12,9 @@ def style_key(style):
 
 def text_sections(page):
     result = []
-    for block in page.get_text('rawdict')['blocks']:
+    with without_boxes(page):
+        blocks = page.get_text('rawdict')['blocks']
+    for block in blocks:
         source_lines = block.get('lines', [])
         if not source_lines:
             continue
@@ -147,7 +150,7 @@ def edit_section(doc, index, section, text, rect=None):
             if r.width > 0.2 and r.height > 0.2:
                 r += (0.05, 0.05, -0.05, -0.05)
                 page.add_redact_annot(r, fill=False, cross_out=False)
-        page.apply_redactions(images=0, graphics=0, text=0)
+        apply_redactions(page, images=0, graphics=0, text=0)
         if placements:
             if data:
                 page.insert_font(fontname=alias, fontbuffer=data)

@@ -12,6 +12,7 @@ import tempfile
 import fitz
 from PIL import Image
 from text_tools import find_matches, replace_match, select_text
+from rich_boxes import apply_redactions
 
 
 def page_numbers(spec, count):
@@ -109,7 +110,7 @@ class PDF:
                 raise ValueError('Replacement does not fit the original area. Use a smaller font.')
         for rect in boxes:
             page.add_redact_annot(rect, fill=(1, 1, 1))
-        page.apply_redactions(images=0, graphics=0)
+        apply_redactions(page, images=0, graphics=0)
         for rect in boxes:
             self.insert_text(index, rect, new, size)
         return len(boxes)
@@ -117,7 +118,7 @@ class PDF:
     def redact(self, index, rect):
         page = self.doc[index]
         page.add_redact_annot(rect, fill=(0, 0, 0))
-        page.apply_redactions(images=2, graphics=2, text=0)
+        apply_redactions(page, images=2, graphics=2, text=0)
 
     def sanitize(self):
         self.doc.set_metadata({})

@@ -33,6 +33,8 @@ from core import PDF, page_numbers, images_to_pdf, office_to_pdf
 from text_tools import find_matches, replace_match, select_text
 from box_tools import text_sections
 from inline_editor import InlineEditor
+from rich_editor import RichBoxEditor
+from rich_boxes import boxes, new_box, move_page, apply_redactions
 from thumbnails import Thumbnails
 
 
@@ -110,8 +112,8 @@ class App(tk.Tk):
         body = ttk.PanedWindow(self, orient='horizontal')
         body.pack(fill='both', expand=True, padx=12, pady=10)
         side = ttk.Frame(body, width=180)
-        ttk.Label(side, text='PAGES', padding=8).pack(fill='x')
-        self.pages = Thumbnails(side, self.go)
+        ttk.Label(side, text='PAGES · drag to reorder', padding=8).pack(fill='x')
+        self.pages = Thumbnails(side, self.go, self.reorder_page)
         self.pages.pack(fill='both', expand=True)
         body.add(side, weight=0)
         viewer = ttk.Frame(body)
@@ -280,7 +282,7 @@ class App(tk.Tk):
                                          fill='#fbbf24', stipple='gray50', outline='#ea580c' if n == self.search_position else '',
                                          width=2, tags='search-result')
         if self.selection_mode.get() == 'edit':
-            for section in text_sections(self.pdf.doc[self.index]):
+            for section in text_sections(self.pdf.doc[self.index]) + boxes(self.pdf.doc[self.index]):
                 r = fitz.Rect(section['rect']) * self.pdf.doc[self.index].rotation_matrix
                 self.canvas.create_rectangle(r.x0 * self.zoom + 20, r.y0 * self.zoom + 20,
                                              r.x1 * self.zoom + 20, r.y1 * self.zoom + 20,
@@ -301,6 +303,14 @@ class App(tk.Tk):
                 return
         self.index = target
         self.render()
+
+    def reorder_page(self, source, target):
+        def reorder():
+            def operation():
+                move_page(self.pdf.doc, source, target)
+                self.index = target
+            self.change(operation, f'Moved page {source + 1} to position {target + 1}. Undo restores the page order.')
+        self.guard(reorder)
 
     def navigate(self, delta):
         if self.pdf and not self.busy:
@@ -338,7 +348,7 @@ class App(tk.Tk):
         self.hide_context()
         if self.inline:
             current = self.canvas.find_withtag('current')
-            if current and current[0] == self.inline.handle:
+            if current and current[0] in getattr(self.inline, 'interactive_items', {self.inline.handle}):
                 return
             self.guard(self.inline.commit)
             if self.inline:
@@ -346,6 +356,10 @@ class App(tk.Tk):
         if self.pdf and self.selection_mode.get() == 'edit':
             point = fitz.Point((self.canvas.canvasx(event.x) - 20) / self.zoom,
                                (self.canvas.canvasy(event.y) - 20) / self.zoom) * self.pdf.doc[self.index].derotation_matrix
+            for box in reversed(boxes(self.pdf.doc[self.index])):
+                if fitz.Rect(box['rect']).contains(point):
+                    self.guard(lambda: self.begin_box(box))
+                    return
             for section in text_sections(self.pdf.doc[self.index]):
                 if fitz.Rect(section['rect']).contains(point):
                     self.guard(lambda: self.begin_inline(section))
@@ -402,6 +416,12 @@ class App(tk.Tk):
         self.clear_selection()
         self.inline = InlineEditor(self, section)
 
+    def begin_box(self, box):
+        self.hide_context()
+        self.clear_selection()
+        self.selection_mode.set('edit')
+        self.inline = RichBoxEditor(self, box)
+
     def hide_context(self):
         self.canvas.delete('context')
         if self.context_frame:
@@ -409,6 +429,15 @@ class App(tk.Tk):
             self.context_frame = None
 
     def selection_popup(self, event=None):
+        if self.selection_mode.get() == 'addbox' and self.pdf and not self.inline and not self.busy:
+            def create():
+                rect = self.rect()
+                if rect.width < 24 or rect.height < 24:
+                    raise ValueError('Drag a larger text box (at least 24 × 24 points).')
+                self.begin_box(new_box(rect))
+            if self.selection:
+                self.guard(create)
+            return
         if self.inline or self.busy or not self.text_quads or not self.pdf:
             return
         self.hide_context()
@@ -419,6 +448,10 @@ class App(tk.Tk):
             self.clipboard_append(text)
             self.hide_context()
         def edit():
+            for box in reversed(boxes(self.pdf.doc[self.index])):
+                if all(fitz.Rect(box['rect']).contains(q.rect) for q in self.text_quads):
+                    self.begin_box(box)
+                    return
             sections = text_sections(self.pdf.doc[self.index])
             candidates = [s for s in sections if all(fitz.Rect(s['rect']).contains(q.rect) for q in self.text_quads)]
             if len(candidates) != 1:
@@ -481,11 +514,13 @@ class App(tk.Tk):
         self.change(lambda: self.pdf.doc[self.index].set_cropbox(rect))
 
     def text(self):
-        rect = self.rect()
-        text = sd.askstring('Add text', 'Text (basic Latin fonts):', parent=self)
-        size = sd.askinteger('Font size', 'Size in points:', initialvalue=12, minvalue=4, maxvalue=144, parent=self) if text else None
-        if text and size:
-            self.change(lambda: self.pdf.insert_text(self.index, rect, text, size))
+        self.require()
+        if self.pdf.doc[self.index].rotation:
+            raise ValueError('Rotate the page upright before adding a text box.')
+        self.clear_selection()
+        self.selection_mode.set('addbox')
+        self.render()
+        self.status.set('Add text box: drag a rectangle on the page, then type. Drag its blue border to move it.')
 
     def replace(self):
         self.require()
@@ -661,7 +696,7 @@ class App(tk.Tk):
                     for quad in quads:
                         r = quad.rect + (0.05, 0.05, -0.05, -0.05)
                         page.add_redact_annot(r, fill=(0, 0, 0))
-                    page.apply_redactions(images=0, graphics=0, text=0)
+                    apply_redactions(page, images=0, graphics=0, text=0)
                 self.change(remove, 'Selected text redacted. Save as to export the cleaned PDF.')
             return
         rect = self.rect()

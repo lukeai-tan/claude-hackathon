@@ -10,14 +10,27 @@ Windows builds run on pushes to master. The executable is also uploaded under
 the completed [Build Windows EXE workflow](https://github.com/RishabhShenoy03/claude-hackathon/actions/workflows/windows.yml).
 The executable is unsigned. Windows may show a publisher warning.
 
-**Validation:** 12 engine tests pass on Linux, including OCR. Windows packaging
-and executable smoke-test results are recorded in Actions. Desktop visual
-testing remains pending. The release link works after a successful workflow run.
+**Validation:** Engine tests cover PDF operations, styled boxes, save/reopen,
+redaction, reordering and undo snapshots. Windows CI exercises actual mouse and
+keyboard controls both before packaging and inside the EXE, including Word export.
+Results are recorded in Actions; this is not an exhaustive visual compatibility test.
 
 ## Use
 
 ### Direct editing and navigation
 
+- **Edit → Add text:** drag a rectangle and type directly inside it. Select
+  letters to change just their font, size, colour, bold, italic or underline.
+  With no selection these controls format the whole box. Choose a box fill,
+  transparent **No fill**, outline colour, and left/centre/right alignment.
+  Drag the **blue border** to move the box; drag the **lower-right corner** to
+  resize it and reflow text. Apply or Ctrl+Enter commits; Escape cancels.
+  Click it again in **Edit text boxes** to edit, move, resize or delete it.
+  Added boxes remain editable after Save as and reopening in OpenPDF Studio.
+  Text remains searchable/selectable in PDF readers and is available to Word export.
+- **Page order:** drag a sidebar thumbnail to the blue insertion line. The
+  sidebar scrolls when you hold the drag near its edges. The moved page remains
+  selected; Undo and Redo restore page order, including its text boxes.
 - **Edit → Edit text boxes:** shows section outlines. Click a section and type
   directly on the page. Letters shift immediately as you type or Backspace.
   The lower-right handle resizes the box and changes wrapping. Click outside,
@@ -33,17 +46,22 @@ testing remains pending. The release link works after a successful workflow run.
 - Redact works on dragged text selections as well as selected page areas.
 
 Inline editing currently handles upright pages and horizontal text. OCR is
-needed for scanned text. Boxes keep their original font size; enlarge a box when
+needed for scanned text. Existing PDF sections keep their original font size; enlarge a box when
 more lines are needed. Edits that overlap another section are rejected. Fonts
 missing replacement glyphs cannot be silently substituted. While typing, the
 editor uses a sampled solid background; applying retains the PDF's actual
-background graphics. This is a first inline editor, not full Acrobat parity.
+background graphics. Added boxes offer Arial, Times New Roman and Courier New
+with Latin characters. Tk and PDF font metrics can differ slightly; overflow is
+reported rather than clipping text. Redacting or replacing text within an added
+box converts that box to ordinary PDF content and removes its old editor data;
+unaffected boxes remain editable. Other PDF applications or transformations may
+discard editor metadata. These controls are not full PowerPoint/Acrobat parity.
 
 Open a PDF, select a page in the sidebar, and use the ribbon tabs.
 In **Select text** mode, drag across characters, then click Highlight (or Ctrl+H
 or right-click → Highlight selected text). This highlights only that selection,
 including selections across multiple lines. Switch to **Select area** before
-placing text, images, signatures, fields, comments/links, cropping, or redacting.
+placing images, signatures, fields, comments/links, cropping, or redacting.
 Save as exports the document.
 
 **Replace text** opens a searchable list of individual matches across every page.
@@ -67,7 +85,8 @@ Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 | --- | --- |
 | Merge, split, extract, reorder, duplicate pages | Implemented; ranges such as `3,1-2,3` |
 | Rotate, delete, insert blank, crop | Implemented |
-| Add text and images | Implemented; basic Latin text font; choose an area |
+| Add text boxes | Drag-create, live edit, selected-character formatting, fill/outline, alignment, move/resize, delete; save/reopen |
+| Add images | Implemented; choose an area |
 | Replace existing text | One selected match; embedded font, size, colour and baseline preserved; transparent text removal preserves background; no paragraph reflow |
 | Highlight, comments, hyperlinks | Drag-selected text highlighting; comments and links use area selection |
 | Visual signatures | Draw and embed; not cryptographic certificate signatures |

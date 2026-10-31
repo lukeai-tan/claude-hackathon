@@ -2,6 +2,7 @@
 import io
 import re
 import fitz
+from rich_boxes import apply_redactions
 
 
 def lines(page):
@@ -157,7 +158,7 @@ def replace_match(doc, match, text):
         if r.width > 0.2 and r.height > 0.2:
             r += (0.05, 0.05, -0.05, -0.05)
             page.add_redact_annot(r, fill=False, cross_out=False)
-    page.apply_redactions(images=0, graphics=0, text=0)
+    apply_redactions(page, images=0, graphics=0, text=0)
     if text:
         if data:
             page.insert_font(fontname=alias, fontbuffer=data)

@@ -124,3 +124,105 @@ def exercise_app(app):
     assert app.pdf.doc[0].search_for('Keep me'), 'Text redaction affected another section'
     app.undo()
     assert app.pdf.doc[0].search_for('Live')
+
+    # Create a box using an actual canvas drag, then format only a selection.
+    from rich_boxes import boxes
+    from tkinter import colorchooser
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.search_window = None
+    app.dirty = False
+    app.new()
+    app.canvas.xview_moveto(0)
+    app.canvas.yview_moveto(0)
+    app.text()
+    app.canvas.event_generate('<ButtonPress-1>', x=80, y=320)
+    app.canvas.event_generate('<B1-Motion>', x=380, y=450)
+    app.canvas.event_generate('<ButtonRelease-1>', x=380, y=450)
+    app.update()
+    editor = app.inline
+    assert editor is not None, 'Drag did not create a text box'
+    editor.widget.insert('1.0', 'Red blue text')
+    editor.widget.tag_add('sel', '1.0', '1.3')
+    with patch.object(colorchooser, 'askcolor', return_value=((255, 0, 0), '#ff0000')):
+        editor.choose_text()
+    assert editor.style_at('1.1')['color'] == '#ff0000'
+    assert editor.style_at('1.5')['color'] == '#000000', 'Colour escaped the selected text'
+    editor.toggle('bold')
+    editor.local_undo()
+    assert not editor.style_at('1.1')['bold'], 'Local undo did not restore formatting'
+    editor.local_redo()
+    assert editor.style_at('1.1')['bold']
+    with patch.object(colorchooser, 'askcolor', return_value=((255, 238, 221), '#ffeedd')):
+        next(w for w in descendants(editor.toolbar) if w.winfo_class() == 'TButton' and w.cget('text') == 'Fill').invoke()
+    assert editor.widget.cget('background') == '#ffeedd', 'Fill did not update live'
+    editor.key_commit()
+    app.update()
+    assert len(boxes(app.pdf.doc[0])) == 1
+    assert app.pdf.doc[0].search_for('Red blue text'), 'Box text is not searchable PDF text'
+
+    # Click the saved box again, drag its top border, and resize its corner.
+    app.canvas.event_generate('<ButtonPress-1>', x=100, y=340)
+    app.update()
+    editor = app.inline
+    assert editor is not None, 'Saved box could not be reopened'
+    original = fitz.Rect(editor.rect)
+    x, y = int(original.x0 + 70), int(original.y0 + 18)
+    app.canvas.event_generate('<Motion>', x=x, y=y)
+    app.canvas.event_generate('<ButtonPress-1>', x=x, y=y)
+    app.canvas.event_generate('<B1-Motion>', x=x + 30, y=y + 20)
+    app.canvas.event_generate('<ButtonRelease-1>', x=x + 30, y=y + 20)
+    app.update()
+    assert editor.rect.x0 > original.x0, 'Dragging border did not move box'
+    old_width = editor.rect.width
+    x, y = round(editor.rect.x1 + 20), round(editor.rect.y1 + 20)
+    app.canvas.event_generate('<Motion>', x=x, y=y)
+    app.canvas.event_generate('<ButtonPress-1>', x=x, y=y)
+    app.canvas.event_generate('<B1-Motion>', x=x + 30, y=y + 20)
+    app.canvas.event_generate('<ButtonRelease-1>', x=x + 30, y=y + 20)
+    app.update()
+    assert editor.rect.width > old_width, 'Corner drag did not resize box'
+    editor.key_commit()
+    app.update()
+    moved = boxes(app.pdf.doc[0])[0]
+    app.undo()
+    assert boxes(app.pdf.doc[0])[0]['rect'] == list(original), 'Undo did not restore box position'
+    app.redo()
+    assert boxes(app.pdf.doc[0])[0]['rect'] == moved['rect']
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / 'styled-box.pdf'
+        app.pdf.save(path)
+        app.load(path)
+        app.update()
+        saved = boxes(app.pdf.doc[0])[0]
+        assert saved['fill'] == '#ffeedd'
+        assert saved['runs'][0]['style']['color'] == '#ff0000'
+        # The same normal PDF text must reach editable Word output.
+        word = Path(folder) / 'styled-box.docx'
+        app.pdf.export_docx(word)
+        xml_text = ''.join(n.text or '' for n in Document(word).element.xpath('.//w:t'))
+        assert 'Red' in xml_text and 'blue text' in xml_text, 'Added box missing in Word'
+
+    # Reorder through real thumbnail drag/drop, and exercise undo/redo.
+    app.pdf.doc.new_page().insert_text((50, 50), 'Page two')
+    app.pdf.doc.new_page().insert_text((50, 50), 'Page three')
+    app.refresh()
+    app.update()
+    tree = app.pages.tree
+    first, third = tree.bbox('0'), tree.bbox('2')
+    assert first and third, 'Thumbnail rows were not visible'
+    start, end = first[1] + first[3] // 2, third[1] + third[3] - 8
+    tree.event_generate('<ButtonPress-1>', x=70, y=start)
+    tree.event_generate('<B1-Motion>', x=70, y=end)
+    tree.event_generate('<ButtonRelease-1>', x=70, y=end)
+    app.update()
+    assert 'Page two' in app.pdf.doc[0].get_text(), 'Thumbnail drag did not reorder pages'
+    assert boxes(app.pdf.doc[2]), 'Reordering lost the text box'
+    assert app.index == 2, 'Moved page did not remain selected'
+    app.undo()
+    assert boxes(app.pdf.doc[0]), 'Undo did not restore page order'
+    app.redo()
+    assert boxes(app.pdf.doc[2]), 'Redo did not restore page order'
+    print('Styled boxes, selection formatting, live fill, drag/resize, Word export and thumbnail reorder passed.')
