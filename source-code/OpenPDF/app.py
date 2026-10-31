@@ -47,8 +47,8 @@ class App(tk.Tk):
         enable_dpi_awareness()
         super().__init__()
         self.title('OpenPDF | OpenSuite')
-        self.geometry('1440x900')
-        self.minsize(1000, 700)
+        self.geometry(f'{min(1440, self.winfo_screenwidth()-24)}x{min(900, self.winfo_screenheight()-100)}')
+        self.minsize(1000, 650)
         self.pdf = None
         self.path = None
         self.index = 0

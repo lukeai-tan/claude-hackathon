@@ -76,12 +76,14 @@ def exercise_ui(app):
 
 
     # Capture the normal document workspace separately from the caret fixture.
-    app.geometry('1440x900+0+0')
+    app.geometry(f'{min(1440, app.winfo_screenwidth()-24)}x{min(900, app.winfo_screenheight()-100)}+0+0')
     app.show_tool_panel('Edit')
     app.pdf.doc[0].insert_text((58, 100), 'Every page, a possibility.', fontsize=25, color=(.18,.14,.29))
     app.pdf.doc[0].insert_text((58, 145), 'OpenPDF / A workspace for your documents', fontsize=12, color=(.44,.33,.84))
     app.pdf.doc[0].insert_text((58, 205), 'Edit text, annotate, organise pages and export.\nYour files stay on your computer.', fontsize=12)
     app.view_cache.invalidate()
+    app.pages.refresh(app.pdf, app.index)
+    app.selection_mode.set('text')
     app.update()
     app.fit_page()
     app.update()

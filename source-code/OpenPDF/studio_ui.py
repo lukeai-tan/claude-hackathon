@@ -73,7 +73,7 @@ def build_workspace(app):
     nav.pack(fill='x')
     for label, command in [('‹', lambda: app.navigate(-1)), ('›', lambda: app.navigate(1)),
                            ('−', lambda: app.scale(.8)), ('+', lambda: app.scale(1.25)), ('Fit page', app.fit_page)]:
-        ttk.Button(nav, text=label, width=6 if label=='Fit page' else 2, command=lambda c=command: app.guard(c)).pack(side='left', padx=2)
+        ttk.Button(nav, text=label, width=8 if label=='Fit page' else 2, command=lambda c=command: app.guard(c)).pack(side='left', padx=2)
     ttk.Radiobutton(nav, text='Text', variable=app.selection_mode, value='text', command=app.clear_selection).pack(side='left', padx=(9, 3))
     ttk.Radiobutton(nav, text='Area', variable=app.selection_mode, value='area', command=app.clear_selection).pack(side='left', padx=3)
     ttk.Label(nav, textvariable=app.page_label, style='Muted.TLabel').pack(side='right', padx=6)
@@ -117,10 +117,17 @@ def build_workspace(app):
         for key, button in app.rail_buttons.items():
             button.configure(background='#eee7ff' if key==name else '#faf9fc', foreground=PURPLE if key==name else '#686374')
         _, lead, actions = groups[name]
-        content = ttk.Frame(panel, padding=(15, 18))
-        content.pack(fill='both', expand=True)
+        scroll = tk.Canvas(panel, background=PAPER, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(panel, orient='vertical', command=scroll.yview)
+        scroll.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right', fill='y')
+        scroll.pack(side='left', fill='both', expand=True)
+        content = ttk.Frame(scroll, padding=(13, 18))
+        window = scroll.create_window(0, 0, window=content, anchor='nw')
+        content.bind('<Configure>', lambda _: scroll.configure(scrollregion=scroll.bbox('all')))
+        scroll.bind('<Configure>', lambda e: scroll.itemconfigure(window, width=e.width))
         ttk.Label(content, text=name, style='Panel.TLabel').pack(anchor='w')
-        ttk.Label(content, text=lead, style='Muted.TLabel', wraplength=202).pack(anchor='w', pady=(9, 19))
+        ttk.Label(content, text=lead, style='Muted.TLabel', wraplength=184).pack(anchor='w', pady=(9, 19))
         for label, action in actions:
             ttk.Button(content, text=label, style='Action.TButton', command=lambda a=action: app.guard(a)).pack(fill='x', pady=4)
         if name=='Draw':
@@ -128,7 +135,15 @@ def build_workspace(app):
             ttk.Spinbox(content, textvariable=app.ink_width, from_=.5, to=20, increment=.5, width=8).pack(anchor='w')
             ttk.Label(content, textvariable=app.ink_color_label, style='Muted.TLabel').pack(anchor='w', pady=12)
         hints={'Edit':'Choose Text to select words, or Area to place images and signatures.', 'Protect':'Redaction removes content from the exported PDF. Keep an original copy.', 'Convert':'OCR is included in the Windows download. Office import needs LibreOffice.', 'Pages':'Drag the page previews to reorder. Ctrl+Z undoes an edit.'}
-        ttk.Label(content, text=hints.get(name, 'Your files stay on this computer. No account required.'), style='Muted.TLabel', wraplength=202).pack(side='bottom', anchor='w', pady=(20, 0))
+        ttk.Label(content, text=hints.get(name, 'Your files stay on this computer. No account required.'), style='Muted.TLabel', wraplength=184).pack(side='bottom', anchor='w', pady=(20, 0))
+        def wheel(event):
+            direction = -1 if getattr(event, 'num', 0) == 4 else 1 if getattr(event, 'num', 0) == 5 else (-1 if event.delta > 0 else 1)
+            scroll.yview_scroll(direction * 3, 'units')
+            return 'break'
+        for child in [scroll, content, *content.winfo_children()]:
+            if child.winfo_class() != 'TSpinbox':
+                for event in ('<MouseWheel>', '<Button-4>', '<Button-5>'):
+                    child.bind(event, wheel)
     app.show_tool_panel = show_panel
     for name, (symbol, _, _) in groups.items():
         button = tk.Button(rail, text=symbol+'\n'+name, font=('Segoe UI', 10), background='#faf9fc', foreground='#686374', activebackground='#eee7ff', activeforeground=PURPLE, relief='flat', borderwidth=0, cursor='hand2', pady=7, command=lambda n=name: show_panel(n))
