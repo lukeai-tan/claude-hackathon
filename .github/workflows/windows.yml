@@ -1,0 +1,47 @@
+name: Build Windows EXE
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test PDF engine
+        run: python -m unittest discover -s tests -v
+      - name: Install OCR runtime
+        run: choco install tesseract --yes --no-progress
+      - name: Build executable with English OCR
+        shell: pwsh
+        run: |
+          $ocrPath = 'C:\Program Files\Tesseract-OCR'
+          if (!(Test-Path "$ocrPath\tesseract.exe")) { throw 'Tesseract installation missing' }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF-Studio --collect-all pymupdf --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
+      - name: Test packaged executable
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath 'dist\OpenPDF-Studio.exe' -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Executable smoke test failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenPDF-Studio-Windows
+          path: dist/OpenPDF-Studio.exe
+      - name: Publish downloadable executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = 'build-${{ github.run_number }}'
+          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Windows portable EXE. Includes English OCR. See README for feature support and limitations. Unsigned executable.'

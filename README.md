@@ -1,2 +1,85 @@
-# claude hackathon thing
+# OpenPDF Studio
 
+An open-source local Windows PDF workstation built for the claude hackathon.
+No subscription, account, document upload, or runtime AI API is required.
+
+## Download
+
+Download `OpenPDF-Studio.exe` from [Releases](https://github.com/RishabhShenoy03/claude-hackathon/releases/latest).
+Windows builds run on pushes to master. The executable is also uploaded under
+the completed [Build Windows EXE workflow](https://github.com/RishabhShenoy03/claude-hackathon/actions/workflows/windows.yml).
+The executable is unsigned. Windows may show a publisher warning.
+
+**Validation:** 12 engine tests pass on Linux, including OCR. Windows packaging
+and executable smoke-test results are recorded in Actions. Desktop visual
+testing remains pending. The release link works after a successful workflow run.
+
+## Use
+
+Open a PDF, select a page in the sidebar, and use the ribbon tabs.
+Drag a rectangle over a page before placing text, an image, a signature, a form
+field, a comment/link, cropping, or redacting. Save as exports the document.
+Ctrl+O opens, Ctrl+S exports, Ctrl+Z undoes the last change (up to 8 snapshots).
+Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
+
+## Feature progress
+
+| Feature | Implementation and limits |
+| --- | --- |
+| Merge, split, extract, reorder, duplicate pages | Implemented; ranges such as `3,1-2,3` |
+| Rotate, delete, insert blank, crop | Implemented |
+| Add text and images | Implemented; basic Latin text font; choose an area |
+| Replace existing text | Implemented within fixed original bounds; no paragraph reflow or original font matching |
+| Highlight, comments, hyperlinks | Implemented |
+| Visual signatures | Draw and embed; not cryptographic certificate signatures |
+| Create/fill forms | Interactive text fields and checkboxes; no XFA support |
+| Redaction | Removes intersecting text, image pixels, and graphics; cleaned full export required |
+| Metadata/attachment cleanup | Implemented; not a comprehensive hidden-content audit |
+| Password protection | AES-256 opening password; normal export removes encryption |
+| OCR | English Tesseract bundled in Windows build; selected pages rasterized with searchable text; those pages lose forms/links |
+| PDF to Word | Text and page breaks only; no faithful table/image/font reconstruction |
+| PDF to text/PNG | Implemented |
+| Images to PDF | Implemented |
+| Office to PDF | Requires separately installed LibreOffice |
+| Document comparison | Text diff HTML; image/layout differences not detected |
+| Compression/batch | Lossless stream compression and garbage collection; reduction not guaranteed |
+| Watermarks, numbering, bookmarks, metadata | Implemented |
+| Search | Searches text on all pages; OCR needed for scans |
+| Remote signature delivery/identity/audit service | Not implemented |
+| Certificate signatures, real-time cloud collaboration | Not implemented |
+| Exact Word reconstruction, arbitrary paragraph editing | Not implemented |
+| Accessibility remediation, PDF/A conformance validation, AI assistant | Not implemented |
+
+This is an independent implementation using open-source PDF engines, not a
+claim of complete Acrobat compatibility. Modified signed PDFs may invalidate
+existing digital signatures. OCR and conversion quality depend on the input.
+
+## Development
+
+Python 3.12 recommended:
+
+```sh
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python app.py
+```
+
+Linux development needs Tk installed; OCR needs `tesseract` on PATH.
+The Windows workflow builds a portable one-file EXE and tests the packaged GUI.
+No Windows executable is produced by a Linux PyInstaller build.
+
+To build directly on Windows, install Python 3.12, optionally install Tesseract
+to its default location, then run `powershell -ExecutionPolicy Bypass -File
+build-windows.ps1` from the source folder. The result is
+`dist/OpenPDF-Studio.exe`. The script tests the engine and packaged app.
+
+## Hackathon evidence
+
+The repository contains tests that reopen exported PDFs to check page structure,
+form values, password protection, redaction, images and text. Use your own varied
+PDFs to compare the supported workflows against Acrobat; no Acrobat behaviour
+study, pricing evidence or feature-parity benchmark is claimed yet.
+
+## License
+
+AGPL-3.0-or-later; see LICENSE and THIRD_PARTY.md.
