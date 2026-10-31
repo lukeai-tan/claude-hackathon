@@ -1,0 +1,185 @@
+# OpenPDF
+
+An open-source local Windows PDF workstation built for the claude hackathon.
+No subscription, account, document upload, or runtime AI API is required.
+
+## Download
+
+Download `OpenPDF.exe` from [Releases](https://github.com/RishabhShenoy03/claude-hackathon/releases/latest).
+Windows builds run on pushes to master. The executable is also uploaded under
+the completed [OpenSuite build and release workflow](https://github.com/RishabhShenoy03/claude-hackathon/actions/workflows/windows.yml).
+The executable is unsigned. Windows may show a publisher warning.
+
+**Validation:** Engine tests cover PDF operations, styled boxes, save/reopen,
+redaction, reordering and undo snapshots. Windows CI exercises actual mouse and
+keyboard controls both before packaging and inside the EXE, including Word export.
+Results are recorded in Actions; this is not an exhaustive visual compatibility test.
+
+## Use
+
+### Direct editing and navigation
+
+- **Pen:** choose **Draw → Pen**, then hold the left mouse button
+  and scribble. **Draw → Ink colour** changes colour; **Thickness** sets 0.5–20 pt.
+  Strokes appear live and save as printable PDF ink annotations. Each stroke is
+  one Undo/Redo step. **Done drawing**, Select text, or Escape exits Pen; Escape
+  during a stroke cancels that unfinished stroke. Drawing also supports rotated
+  pages and zoomed/scrolled views.
+- **Edit → Add text:** drag a rectangle and type directly inside it. Select
+  letters to change just their font, size, colour, bold, italic or underline.
+  With no selection these controls format the whole box. Choose a box fill,
+  transparent **No fill**, outline colour, and left/centre/right alignment.
+  Drag the **purple border** to move the box; drag the **lower-right corner** to
+  resize it and reflow text. Apply or Ctrl+Enter commits; Escape cancels.
+  Click it again in **Edit text boxes** to edit, move, resize or delete it.
+  Added boxes remain editable after Save as and reopening in OpenPDF.
+  Text remains searchable/selectable in PDF readers and is available to Word export.
+  Boxes **grow automatically** as you type or increase the font size. Near the
+  page bottom they shift upward to fit; fonts are never silently reduced. Only
+  text exceeding a whole page still requires another box/page. The caret follows
+  the active character's font, including selections reduced to a smaller size.
+- **Page order:** drag a sidebar thumbnail to the purple insertion line. The
+  sidebar scrolls when you hold the drag near its edges. The moved page remains
+  selected; Undo and Redo restore page order, including its text boxes.
+- **Edit → Edit text boxes:** shows section outlines. Click a section and type
+  directly on the page. Letters shift immediately as you type or Backspace.
+  The lower-right handle resizes the box and changes wrapping. Click outside,
+  Apply, or Ctrl+Enter to apply; Escape cancels. Ctrl+Z/Ctrl+Y work within the
+  active editor. The exported PDF reuses the original embedded font and background.
+  Drag the purple border to move **existing PDF sections**, too. Shorter edits
+  collapse unused blank lines within that section and their bounds shrink to the
+  remaining text. Narrower boxes expand vertically into available space at the
+  original font size; page edges are still protected. Overlapping sections are
+  allowed. Edited native sections stay independent so moving one again does not
+  erase text underneath it, including after save/reopen.
+  Separate table cells and side-by-side footer text remain individual sections.
+- Selecting text opens a compact **Edit section / Highlight / Redact / Copy**
+  toolbar next to the selection. Mixed font styles become separate editable runs.
+- **Ctrl+F:** live find with yellow on-page matches, an orange active match, and
+  Previous/Next navigation. Search highlighting is temporary and is not exported.
+- **Ctrl + mouse wheel:** zoom in/out. Normal wheel scrolls the page.
+- **Undo / Redo:** always visible in the header; Ctrl+Z / Ctrl+Y also work.
+- The left sidebar displays clickable page thumbnails, rendered in idle batches.
+- Redact works on dragged text selections as well as selected page areas.
+
+Inline editing currently handles upright pages and horizontal text. OCR is
+needed for scanned text. Existing PDF sections keep their original font size.
+Overlapping text boxes are permitted. Fonts
+missing replacement glyphs cannot be silently substituted. While typing, the
+editor uses a sampled solid background; applying retains the PDF's actual
+background graphics. Added boxes offer Arial, Times New Roman and Courier New
+with Latin characters. Tk and PDF font metrics can differ slightly; overflow is
+reported rather than clipping text. Redacting or replacing text within an added
+box converts that box to ordinary PDF content and removes its old editor data;
+unaffected boxes remain editable. Other PDF applications or transformations may
+discard editor metadata. These controls are not full PowerPoint/Acrobat parity.
+
+Open a PDF, select a page in the sidebar, and use the ribbon tabs.
+In **Select text** mode, drag across characters, then click Highlight (or Ctrl+H
+or right-click → Highlight selected text). This highlights only that selection,
+including selections across multiple lines. Switch to **Select area** before
+placing images, signatures, fields, comments/links, cropping, or redacting.
+Save as exports the document.
+
+**Replace text** opens a searchable list of individual matches across every page.
+Select a result or use Previous/Next; the viewer scrolls to the orange outline.
+The dialog shows the detected font, size and colour. Replace selected changes
+only that occurrence, retaining its baseline, size, font outlines, colour and
+underlying background. Text that would overlap its neighbour is rejected rather
+than silently resized. Missing subset-font glyphs and mixed-style matches are
+reported without changing the PDF. Paragraph reflow is not supported.
+
+**Export Word** reconstructs editable paragraphs, styled runs, tables, images and
+page layout with pdf2docx. It is no longer the plain-text export used in build 1.
+Scanned documents need OCR first. Highly designed pages, unusual fonts and
+complex vector graphics may still differ from the PDF; review the result in Word.
+Ctrl+O opens, Ctrl+S exports, Ctrl+Z undoes and Ctrl+Y redoes changes (up to 8 undo snapshots).
+Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
+
+## Feature progress
+
+| Feature | Implementation and limits |
+| --- | --- |
+| Merge, split, extract, reorder, duplicate pages | Implemented; ranges such as `3,1-2,3` |
+| Rotate, delete, insert blank, crop | Implemented |
+| Add text boxes | Drag-create, live edit, selected-character formatting, fill/outline, alignment, move/resize, delete; save/reopen |
+| Add images | Implemented; choose an area |
+| Replace existing text | One selected match; embedded font, size, colour and baseline preserved; transparent text removal preserves background; no paragraph reflow |
+| Highlight, comments, hyperlinks | Drag-selected text highlighting; comments and links use area selection |
+| Visual signatures | Draw and embed; not cryptographic certificate signatures |
+| Freehand pen | Live mouse scribbling, colour/thickness, printable PDF ink, stroke undo/redo |
+| Create/fill forms | Interactive text fields and checkboxes; no XFA support |
+| Redaction | Removes intersecting text, image pixels, and graphics; cleaned full export required |
+| Metadata/attachment cleanup | Implemented; not a comprehensive hidden-content audit |
+| Password protection | AES-256 opening password; normal export removes encryption |
+| OCR | English Tesseract bundled in Windows build; selected pages rasterized with searchable text; those pages lose forms/links |
+| PDF to Word | Editable layout reconstruction including styles, tables and images; complex layout fidelity varies |
+| PDF to text/PNG | Implemented |
+| Images to PDF | Implemented |
+| Office to PDF | Requires separately installed LibreOffice |
+| Document comparison | Text diff HTML; image/layout differences not detected |
+| Compression/batch | Lossless stream compression and garbage collection; reduction not guaranteed |
+| Watermarks, numbering, bookmarks, metadata | Implemented |
+| Search | Searches text on all pages; OCR needed for scans |
+| Remote signature delivery/identity/audit service | Not implemented |
+| Certificate signatures, real-time cloud collaboration | Not implemented |
+| Exact Word reconstruction, arbitrary paragraph editing | Not implemented |
+| Accessibility remediation, PDF/A conformance validation, AI assistant | Not implemented |
+
+This is an independent implementation using open-source PDF engines, not a
+claim of complete Acrobat compatibility. Modified signed PDFs may invalidate
+existing digital signatures. OCR and conversion quality depend on the input.
+
+## Development
+
+### Editing performance
+
+Windows controls are DPI-aware and use a dedicated screen UI font. The category rail opens focused tool panels; contextual toolbars use compact labelled controls so
+document font size and zoom do not distort button labels.
+
+Pointer movement updates only the Tk overlay, coalesced into 16 ms frames.
+PDF serialization, text extraction and PDF rasterization never run in the drag
+handler. Native editor previews copy just the current page; text removal groups
+contiguous glyphs into line segments rather than creating an annotation for every
+character. Text geometry, embedded fonts and the last two page rasters are cached.
+Only the changed page is invalidated after an edit; thumbnails render on demand
+for visible rows and pause while a text editor is active. Pixel buffers transfer
+directly to the display without PNG compression. Added-box formatting and PDF
+output operate on styled runs, rather than making a Tk/PDF call for every letter.
+
+`python benchmarks/editor.py [optional.pdf ...]` prints engine timings. A local
+1,151-character paragraph-removal benchmark dropped from 10.3 seconds to about
+33–45 ms; this measures that operation, not total application latency or all PDFs.
+Windows source and packaged smoke tests report editor-open, drag-frame, apply,
+and styled-text snapshot timings. They also reject PDF work in the drag path and
+unrelated page rendering after a single-page edit. Export still performs full PDF
+compression/cleanup; temporary undo snapshots avoid that work.
+
+Python 3.12 recommended:
+
+```sh
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python app.py
+```
+
+Linux development needs Tk installed; OCR needs `tesseract` on PATH.
+The Windows workflow builds a portable one-file EXE and tests the packaged GUI.
+No Windows executable is produced by a Linux PyInstaller build.
+
+To build directly on Windows, install Python 3.12, optionally install Tesseract
+to its default location, then run `powershell -ExecutionPolicy Bypass -File
+build-windows.ps1` from the source folder. The result is
+`dist/OpenPDF.exe`. The script tests the engine and packaged app.
+
+## Hackathon evidence
+
+The repository contains tests that reopen exported PDFs to check page structure,
+form values, password protection, redaction, images and text. Use your own varied
+PDFs to compare the supported workflows against Acrobat; no Acrobat behaviour
+study, pricing evidence or feature-parity benchmark is claimed yet.
+
+## License
+
+AGPL-3.0-or-later; see LICENSE and THIRD_PARTY.md.
+
