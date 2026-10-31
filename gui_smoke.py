@@ -296,3 +296,5 @@ def exercise_app(app):
     print('Freehand pen, live preview, export, colour/width, cancellation and undo/redo passed.')
     from gui_performance import exercise_performance
     exercise_performance(app)
+    from gui_ui_checks import exercise_ui
+    exercise_ui(app)

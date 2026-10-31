@@ -6,8 +6,14 @@ import tkinter as tk
 from tkinter import ttk, colorchooser, font as tkfont
 import fitz
 from PIL import Image, ImageTk
-from rich_boxes import DEFAULT_STYLE, put_box, delete_box, without_boxes
+from rich_boxes import DEFAULT_STYLE, put_box, delete_box, without_boxes, fit_box
 from render_tools import pixmap_image
+from ui_tools import TextCaret
+
+
+def editor_button(parent, **kwargs):
+    kwargs.setdefault('width', 0)
+    return ttk.Button(parent, style='Editor.TButton', **kwargs)
 
 
 class RichBoxEditor:
@@ -18,11 +24,14 @@ class RichBoxEditor:
         self.rect = fitz.Rect(box['rect'])
         self.closed = False
         self.pending_position = None
+        self.pending_fit = None
         self.last_size = None
         self.last_align = None
         self.last_typing_checkpoint = 0
         self.styles, self.fonts = {}, []
+        self.font_cache = {}
         self.default = dict(DEFAULT_STYLE, **box.get('default', {}))
+        self.insertion_style = deepcopy(self.default)
         self.drag = None
         self.local_history, self.local_future = [], []
         page = app.pdf.doc[self.index]
@@ -49,8 +58,8 @@ class RichBoxEditor:
         row = ttk.Frame(self.toolbar)
         row.pack(fill='x')
         for title, action in [('Apply', self.key_commit), ('Cancel', self.cancel), ('Delete box', self.remove)]:
-            ttk.Button(row, text=title, command=action, takefocus=False).pack(side='left')
-        ttk.Label(row, text='Drag blue border to move · corner to resize').pack(side='left', padx=6)
+            editor_button(row, text=title, command=action, takefocus=False).pack(side='left', padx=2)
+        ttk.Label(self.toolbar, text='Drag border to move; corner to resize.', wraplength=400).pack(anchor='w', pady=2)
         row = ttk.Frame(self.toolbar)
         row.pack(fill='x')
         self.family = tk.StringVar(value=self.default['family'])
@@ -63,22 +72,24 @@ class RichBoxEditor:
                            command=self.set_size)
         spin.pack(side='left', padx=2)
         spin.bind('<Return>', lambda e: self.set_size())
-        ttk.Button(row, text='Set size', command=self.set_size, takefocus=False).pack(side='left')
+        editor_button(row, text='Set size', command=self.set_size, takefocus=False).pack(side='left')
+        row = ttk.Frame(self.toolbar)
+        row.pack(fill='x', pady=2)
         for label, key in [('B', 'bold'), ('I', 'italic'), ('U', 'underline')]:
-            ttk.Button(row, text=label, width=2, command=lambda k=key: self.toggle(k), takefocus=False).pack(side='left')
-        ttk.Button(row, text='Text colour', command=self.choose_text, takefocus=False).pack(side='left')
+            editor_button(row, text=label, width=3, command=lambda k=key: self.toggle(k), takefocus=False).pack(side='left', padx=2)
+        editor_button(row, text='Text colour', command=self.choose_text, takefocus=False).pack(side='left')
         row = ttk.Frame(self.toolbar)
         row.pack(fill='x')
         for label, action in [('Fill', lambda: self.choose_box('fill')),
                               ('No fill', lambda: self.set_box(fill=None)),
                               ('Outline', lambda: self.choose_box('border')),
                               ('No outline', lambda: self.set_box(border=None))]:
-            ttk.Button(row, text=label, command=action, takefocus=False).pack(side='left')
+            editor_button(row, text=label, command=action, takefocus=False).pack(side='left', padx=1)
         self.align = tk.StringVar(value=box['align'])
         align = ttk.Combobox(row, textvariable=self.align, values=['left', 'center', 'right'], state='readonly', width=7)
         align.pack(side='left', padx=4)
         align.bind('<<ComboboxSelected>>', lambda e: self.set_box(align=self.align.get()))
-        ttk.Label(self.toolbar, text='Select letters to format them; with no selection, formatting applies to the whole box.').pack(anchor='w')
+        ttk.Label(self.toolbar, text='Select text to format it. No selection: format the whole box.', wraplength=400).pack(anchor='w', pady=2)
         self.toolbar_id = app.canvas.create_window(0, 0, window=self.toolbar, anchor='nw', tags='inline')
         self.edges = [app.canvas.create_rectangle(0, 0, 0, 0, fill='#2563eb', outline='', tags='inline') for _ in range(4)]
         self.handle = app.canvas.create_rectangle(0, 0, 0, 0, fill='#2563eb', outline='white', tags='inline')
@@ -109,20 +120,80 @@ class RichBoxEditor:
         self.widget.bind('<<Paste>>', lambda e: self.checkpoint(), add='+')
         self.widget.bind('<<Cut>>', lambda e: self.checkpoint(), add='+')
         self.widget.bind('<<Modified>>', self.modified)
+        self.caret = TextCaret(self.widget, self.caret_font)
         self.widget.edit_modified(False)
         self.toolbar.update_idletasks()  # once, not for every pointer event
         self.toolbar_size = (self.toolbar.winfo_reqwidth(), self.toolbar.winfo_reqheight())
         self.position()
         self.widget.focus_set()
         self.widget.mark_set('insert', 'end-1c')
+        self.caret.schedule()
+        self.schedule_fit()
         app.status.set('Type live. Select letters to format; drag the blue border to move. Ctrl+Enter applies, Escape cancels.')
 
     def make_font(self, style):
+        key = tuple(style[k] for k in ('family', 'size', 'bold', 'italic', 'underline'))
+        if key in self.font_cache:
+            return self.font_cache[key]
         font = tkfont.Font(root=self.app, family=style['family'], size=-max(4, round(style['size'] * self.app.zoom)),
                            weight='bold' if style['bold'] else 'normal', slant='italic' if style['italic'] else 'roman',
                            underline=style['underline'])
         self.fonts.append(font)
+        self.font_cache[key] = font
         return font
+
+    def caret_font(self):
+        index = self.widget.index('insert')
+        if self.widget.compare(index, '>=', 'end-1c') and self.widget.compare(index, '>', '1.0'):
+            index = self.widget.index(index + '-1c')
+        style = self.style_at(index)
+        self.insertion_style = deepcopy(style)
+        font = self.make_font(style)
+        # The base font controls empty-line spacing. Keeping a previous 18pt
+        # default after selecting 5pt was creating huge blank lines and carets.
+        if str(self.widget.cget('font')) != str(font):
+            self.widget.configure(font=font, foreground=style['color'])
+        if not self.widget.tag_ranges('sel'):
+            self.family.set(style['family'])
+            self.size.set(f'{style["size"]:g}')
+        return font, style['color']
+
+    def repair_unstyled_text(self):
+        active, unstyled = set(), []
+        for kind, value, index in self.widget.dump('1.0', 'end-1c', text=True, tag=True):
+            if kind == 'tagon' and value in self.styles:
+                active.add(value)
+            elif kind == 'tagoff':
+                active.discard(value)
+            elif kind == 'text' and not active:
+                unstyled.append((index, f'{index}+{len(value)}c'))
+        if unstyled:
+            tag = self.style_tag(self.insertion_style)
+            for start, end in unstyled:
+                self.widget.tag_add(tag, start, end)
+
+    def schedule_fit(self):
+        if self.pending_fit is not None:
+            self.app.after_cancel(self.pending_fit)
+        self.pending_fit = self.app.after(75, self.fit_live)
+
+    def fit_live(self, strict=False):
+        if self.pending_fit is not None:
+            self.app.after_cancel(self.pending_fit)
+            self.pending_fit = None
+        if self.closed:
+            return
+        try:
+            fitted, _ = fit_box(self.value(), self.bounds)
+            rect = fitz.Rect(fitted['rect'])
+            if rect != self.rect:
+                self.rect = rect
+                self.request_position()
+            self.caret.schedule()
+        except ValueError as exc:
+            if strict:
+                raise
+            self.app.status.set(str(exc))
 
     def style_tag(self, style):
         style = dict(DEFAULT_STYLE, **style)
@@ -189,6 +260,8 @@ class RichBoxEditor:
         self.size.set(str(self.default['size']))
         self.align.set(box['align'])
         self.position()
+        self.caret.schedule()
+        self.schedule_fit()
 
     def local_undo(self):
         self.last_typing_checkpoint = 0
@@ -219,8 +292,11 @@ class RichBoxEditor:
             self.widget.tag_add(self.style_tag(style), begin, finish)
         if not selection:
             self.default.update(change)
+            self.insertion_style = deepcopy(self.default)
             self.widget.configure(font=self.make_font(self.default), foreground=self.default['color'])
         self.widget.focus_set()
+        self.caret.schedule()
+        self.schedule_fit()
         return 'break'
 
     def toggle(self, key):
@@ -305,6 +381,9 @@ class RichBoxEditor:
         return 'break'
 
     def start_move(self, event):
+        if self.pending_fit is not None:
+            self.app.after_cancel(self.pending_fit)
+            self.pending_fit = None
         self.checkpoint()
         self.drag = (self.app.canvas.canvasx(event.x), self.app.canvas.canvasy(event.y), fitz.Rect(self.rect))
         return 'break'
@@ -322,6 +401,7 @@ class RichBoxEditor:
 
     def start_resize(self, event):
         self.checkpoint()
+        self.schedule_fit()
         return 'break'
 
     def resize(self, event):
@@ -330,17 +410,23 @@ class RichBoxEditor:
         self.rect.x1 = max(self.rect.x0 + 24, min(bounds.width, (c.canvasx(event.x) - 20) / z))
         self.rect.y1 = max(self.rect.y0 + 24, min(bounds.height, (c.canvasy(event.y) - 20) / z))
         self.request_position()
+        self.schedule_fit()
         return 'break'
 
     def modified(self, event=None):
         if not self.closed and self.widget.edit_modified():
             self.widget.edit_modified(False)
+            self.repair_unstyled_text()
             self.widget.tag_add('alignment', '1.0', 'end')
             self.app.status.set('Text updates live. Select letters to format them. Drag the blue border to move the box.')
+            self.schedule_fit()
+            self.caret.schedule()
 
     def commit(self):
         if self.closed:
             return
+        self.repair_unstyled_text()
+        self.fit_live(strict=True)
         box = self.value()
         if box == self.original and 'xref' in self.original:
             self.close()
@@ -367,6 +453,10 @@ class RichBoxEditor:
 
     def close(self):
         self.closed = True
+        self.caret.close()
+        if self.pending_fit is not None:
+            self.app.after_cancel(self.pending_fit)
+            self.pending_fit = None
         if self.pending_position is not None:
             self.app.after_cancel(self.pending_position)
             self.pending_position = None

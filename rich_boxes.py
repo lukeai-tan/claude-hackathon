@@ -6,6 +6,7 @@ metadata together, so a later edit cannot resurrect removed text.
 """
 from contextlib import contextmanager
 from copy import deepcopy
+from functools import lru_cache
 import json
 import uuid
 import fitz
@@ -66,7 +67,12 @@ def rgb(value):
     return tuple(int(value[i:i + 2], 16) / 255 for i in (1, 3, 5)) if value else None
 
 
-def layout(box):
+@lru_cache(maxsize=12)
+def metric_font(name):
+    return fitz.Font(name)
+
+
+def layout(box, check_height=True, with_height=False):
     """Lay out styled runs without dropping overflowing text."""
     rect = fitz.Rect(box['rect'])
     width, height = rect.width - 8, rect.height - 8
@@ -80,7 +86,7 @@ def layout(box):
             raise ValueError('Font size must be between 4 and 200 points.')
         name = font_name(style)
         if name not in fonts:
-            fonts[name] = fitz.Font(name)
+            fonts[name] = metric_font(name)
         font = fonts[name]
         for char in run['text'].replace('\r\n', '\n').replace('\r', '\n').replace('\t', '    '):
             if char != '\n' and (ord(char) > 255 or not font.has_glyph(ord(char))):
@@ -110,7 +116,7 @@ def layout(box):
     for row, fallback in rows:
         asc = max((c['ascent'] for c in row), default=fallback['ascent'])
         desc = max((c['descent'] for c in row), default=fallback['descent'])
-        if y + asc + desc > rect.height - 4 + .01:
+        if check_height and y + asc + desc > rect.height - 4 + .01:
             raise ValueError('Text needs more height. Enlarge the box or reduce the font size; no text was discarded.')
         row_width = sum(c['width'] for c in row)
         x = 4 + (width - row_width) * {'left': 0, 'center': .5, 'right': 1}[box['align']]
@@ -118,15 +124,57 @@ def layout(box):
             placed.append((x, y + asc, c))
             x += c['width']
         y += (asc + desc) * 1.08
-    return placed
+    required = (y - (asc + desc) * .08 + 4) if rows else 8
+    return (placed, required) if with_height else placed
+
+
+def fit_box(box, bounds):
+    """Grow to fit without shrinking fonts; shift upward at the page edge."""
+    fitted = deepcopy(box)
+    bounds = fitz.Rect(bounds)
+    rect = fitz.Rect(box['rect'])
+    if rect.is_empty:
+        raise ValueError('Draw a text box inside the page.')
+    longest, word = 0., 0.
+    for run in box['runs']:
+        style = dict(DEFAULT_STYLE, **run['style'])
+        font = metric_font(font_name(style))
+        for char in run['text']:
+            if char.isspace():
+                longest, word = max(longest, word), 0.
+            else:
+                word += font.text_length(char, fontsize=style['size'])
+    longest = max(longest, word)
+    default = dict(DEFAULT_STYLE, **box.get('default', {}))
+    minimum_width = max(12., longest + 8)
+    width = min(bounds.width, max(rect.width, minimum_width))
+    rect.x0 = max(bounds.x0, min(rect.x0, bounds.x1 - width))
+    rect.x1 = rect.x0 + width
+    rect.y1 = max(rect.y1, rect.y0 + 12)
+    fitted['rect'] = list(rect)
+    placed, height = layout(fitted, check_height=False, with_height=True)
+    if not fitted['runs']:
+        font = metric_font(font_name(default))
+        height = (font.ascender - font.descender) * default['size'] + 8
+    if height > bounds.height + .01 and width < bounds.width:
+        rect.x0, rect.x1 = bounds.x0, bounds.x1
+        fitted['rect'] = list(rect)
+        placed, height = layout(fitted, check_height=False, with_height=True)
+    if height > bounds.height + .01:
+        raise ValueError('Text exceeds the page height even at full width. Split it into another box or page.')
+    height = min(bounds.height, max(rect.height, height))
+    rect.y0 = max(bounds.y0, min(rect.y0, bounds.y1 - height))
+    rect.y1 = rect.y0 + height
+    fitted['rect'] = list(rect)
+    return fitted, placed
 
 
 def put_box(doc, index, box):
     page = doc[index]
+    box, placed = fit_box(box, fitz.Rect(0, 0, page.cropbox.width, page.cropbox.height))
     rect = fitz.Rect(box['rect'])
     if rect.is_empty or not fitz.Rect(0, 0, page.cropbox.width, page.cropbox.height).contains(rect):
         raise ValueError('Keep the text box inside the page.')
-    placed = layout(box)  # preflight before changing the PDF
     existing = next((b for b in boxes(page) if b['id'] == box['id']), None)
     before = page.get_contents()
     with fitz.open() as source:
@@ -171,20 +219,33 @@ def delete_box(doc, index, identifier):
         contents(page, [x for x in page.get_contents() if x != target['xref']])
 
 
-def apply_redactions(page, **options):
+def apply_redactions(page, preserve_native=False, **options):
     """Preserve untouched boxes; remove metadata for any box being redacted."""
     areas = [a.rect for a in page.annots() or [] if a.type[0] == fitz.PDF_ANNOT_REDACT]
+    from native_layers import layers, KEY as NATIVE_KEY, restore_font_resource
+    native = []
+    fonts = {font[4]: font[0] for font in page.get_fonts(full=True) if not font[-1]}
+    for section in layers(page):
+        if not preserve_native and any(fitz.Rect(section['rect']).intersects(r) for r in areas):
+            page.parent.xref_set_key(section['_stream'], NATIVE_KEY, 'null')
+        else:
+            native.append(section)
     detached = []
     for box in boxes(page):
-        if any(fitz.Rect(box['rect']).intersects(rect) for rect in areas):
+        if not preserve_native and any(fitz.Rect(box['rect']).intersects(rect) for rect in areas):
             page.parent.xref_set_key(box['xref'], KEY, 'null')
         else:
             detached.append(box)
     refs = page.get_contents()
-    if detached:
-        hidden = {b['xref'] for b in detached}
+    if detached or native:
+        hidden = {b['xref'] for b in detached} | {s['_stream'] for s in native}
         contents(page, [x for x in refs if x not in hidden])
     result = page.apply_redactions(**options)
+    for section in native:
+        name = section['_font_resource']
+        restore_font_resource(page, name, fonts[name])
+    if native:
+        contents(page, page.get_contents() + [s['_stream'] for s in native])
     # MuPDF removes unused resources during redaction. Rebuild detached boxes
     # instead of restoring dangling references to their former Form XObjects.
     for box in detached:

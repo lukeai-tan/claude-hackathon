@@ -4,7 +4,7 @@ import fitz
 from core import PDF
 from box_tools import text_sections, edit_section
 from text_tools import find_matches, replace_match
-from rich_boxes import new_box, put_box, boxes, delete_box, move_page, apply_redactions, DEFAULT_STYLE
+from rich_boxes import new_box, put_box, boxes, delete_box, move_page, apply_redactions, DEFAULT_STYLE, fit_box
 
 
 class RichBoxTests(unittest.TestCase):
@@ -101,6 +101,31 @@ class RichBoxTests(unittest.TestCase):
         self.assertIsNone(boxes(self.pdf.doc[0])[0]['fill'])
         self.pdf.restore(after)
         self.assertEqual(boxes(self.pdf.doc[0])[0]['fill'], '#ffffff')
+
+    def test_tiny_box_grows_to_fit_font_without_reducing_size(self):
+        self.box['rect'] = [50, 80, 62, 92]
+        self.box['runs'] = [dict(text='Large font\nSecond line', style=dict(DEFAULT_STYLE, size=36))]
+        put_box(self.pdf.doc, 0, self.box)
+        box = boxes(self.pdf.doc[0])[0]
+        self.assertGreater(fitz.Rect(box['rect']).height, 80)
+        self.assertGreater(fitz.Rect(box['rect']).width, 100)
+        self.assertEqual(box['runs'][0]['style']['size'], 36)
+        self.assertIn('Second', self.pdf.doc[0].get_text())
+
+    def test_autosize_at_bottom_shifts_box_up_to_stay_on_page(self):
+        self.box['rect'] = [50, 820, 200, 840]
+        self.box['runs'] = [dict(text='One\nTwo\nThree', style=dict(DEFAULT_STYLE, size=24))]
+        put_box(self.pdf.doc, 0, self.box)
+        rect = fitz.Rect(boxes(self.pdf.doc[0])[0]['rect'])
+        self.assertLess(rect.y0, 820)
+        self.assertLessEqual(rect.y1, self.pdf.doc[0].rect.y1)
+        self.assertIn('Three', self.pdf.doc[0].get_text())
+
+    def test_automatic_fit_is_stable_on_repeated_calls(self):
+        self.box['rect'] = [50, 80, 70, 100]
+        fitted, _ = fit_box(self.box, self.pdf.doc[0].rect)
+        again, _ = fit_box(fitted, self.pdf.doc[0].rect)
+        self.assertEqual(fitted, again)
 
 
 if __name__ == '__main__':

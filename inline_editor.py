@@ -9,6 +9,7 @@ from PIL import Image, ImageTk
 from box_tools import edit_section, remove_section
 from text_tools import font_for
 from render_tools import pixmap_image
+from ui_tools import TextCaret, isolated_screen_font
 
 
 class InlineEditor:
@@ -30,16 +31,13 @@ class InlineEditor:
         face, data, alias = font_for(app.pdf.doc, page, style, section['text'].replace('\n', ''))
         family = style['font'].replace('-', ' ')
         if data and sys.platform == 'win32':
-            from fontTools.ttLib import TTFont
-            tt = TTFont(io.BytesIO(data))
-            family = tt['name'].getDebugName(1) or family
-            tt.close()
-            self.font_buffer = ctypes.create_string_buffer(data)
+            family, screen_data = isolated_screen_font(data)
+            self.font_buffer = ctypes.create_string_buffer(screen_data)
             count = ctypes.c_uint()
             add = ctypes.windll.gdi32.AddFontMemResourceEx
             add.restype = ctypes.c_void_p
             add.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint)]
-            self.font_handle = add(self.font_buffer, len(data), None, ctypes.byref(count))
+            self.font_handle = add(self.font_buffer, len(screen_data), None, ctypes.byref(count))
         elif alias:
             family = 'Times New Roman' if alias.startswith('ti') else 'Courier New' if alias.startswith('co') else 'Arial'
         self.font = tkfont.Font(root=app, family=family, size=-max(5, round(style['size'] * app.zoom)),
@@ -72,9 +70,9 @@ class InlineEditor:
                                                self.rect.y0 * app.zoom + 18,
                                                window=self.widget, anchor='nw', tags='inline')
         self.toolbar = ttk.Frame(app.canvas, padding=3)
-        ttk.Button(self.toolbar, text='Apply', command=lambda: app.guard(self.commit)).pack(side='left')
-        ttk.Button(self.toolbar, text='Cancel', command=self.cancel).pack(side='left')
-        ttk.Label(self.toolbar, text=f'{style["size"]:g} pt · drag blue border to move · corner to resize').pack(side='left', padx=6)
+        ttk.Button(self.toolbar, text='Apply', style='Editor.TButton', width=0, command=lambda: app.guard(self.commit)).pack(side='left')
+        ttk.Button(self.toolbar, text='Cancel', style='Editor.TButton', width=0, command=self.cancel).pack(side='left')
+        ttk.Label(self.toolbar, text=f'{style["size"]:g} pt · drag border to move · corner to resize', wraplength=280).pack(side='left', padx=6)
         self.toolbar_id = app.canvas.create_window(self.rect.x0 * app.zoom + 18,
                                                    max(0, self.rect.y0 * app.zoom - 18),
                                                    window=self.toolbar, anchor='nw', tags='inline')
@@ -104,10 +102,12 @@ class InlineEditor:
         self.widget.bind('<Control-f>', app.find_shortcut)
         self.widget.bind('<Control-MouseWheel>', app.wheel)
         self.widget.bind('<<Modified>>', self.modified)
+        self.caret = TextCaret(self.widget, lambda: (self.font, f'#{style["color"]:06x}'))
         self.widget.edit_modified(False)
         self.widget.focus_set()
         self.widget.mark_set('insert', 'end-1c')
         self.widget.see('insert')
+        self.caret.schedule()
         app.status.set('Editing directly: type or Backspace to reflow. Click outside / Ctrl+Enter to apply; Escape cancels.')
 
     def position(self):
@@ -215,6 +215,7 @@ class InlineEditor:
         if self.closed:
             return
         self.closed = True
+        self.caret.close()
         if self.pending_position is not None:
             self.app.after_cancel(self.pending_position)
             self.pending_position = None

@@ -40,12 +40,44 @@ class BoxTests(unittest.TestCase):
             edit_section(self.pdf.doc, 0, section, 'a very long paragraph ' * 20)
         self.assertEqual(self.pdf.doc[0].get_text(), before)
 
-    def test_neighbour_collision_rejected(self):
+    def test_neighbour_overlap_is_allowed(self):
         section = text_sections(self.pdf.doc[0])[0]
         rect = fitz.Rect(section['rect'])
         rect.y1 = 400
-        with self.assertRaisesRegex(ValueError, 'overlap'):
-            edit_section(self.pdf.doc, 0, section, 'line\n' * 6 + 'collision', rect)
+        edit_section(self.pdf.doc, 0, section, 'line\n' * 6 + 'collision', rect)
+        self.assertIn('collision', self.pdf.doc[0].get_text())
+        self.assertIn('Keep this separate', self.pdf.doc[0].get_text())
+
+    def test_overlapped_native_sections_remain_independent_after_reopen(self):
+        section = text_sections(self.pdf.doc[0])[0]
+        target = fitz.Rect(section['rect']) + (0, 150, 0, 150)
+        edit_section(self.pdf.doc, 0, section, 'Overlapping', target)
+        self.pdf.restore(self.pdf.bytes())
+        section = next(s for s in text_sections(self.pdf.doc[0]) if s['text'] == 'Overlapping')
+        edit_section(self.pdf.doc, 0, section, 'Moved again', fitz.Rect(section['rect']) + (100, 30, 100, 30))
+        self.assertIn('Keep this separate', self.pdf.doc[0].get_text())
+        self.assertNotIn('Overlapping', self.pdf.doc[0].get_text())
+        self.assertIn('Moved', self.pdf.doc[0].get_text())
+        self.assertIn('again', self.pdf.doc[0].get_text())
+
+    def test_editing_underneath_native_layer_preserves_layer(self):
+        section = text_sections(self.pdf.doc[0])[0]
+        edit_section(self.pdf.doc, 0, section, 'Overlapping', fitz.Rect(section['rect']) + (0, 150, 0, 150))
+        underneath = next(s for s in text_sections(self.pdf.doc[0]) if s['text'] == 'Keep this separate')
+        edit_section(self.pdf.doc, 0, underneath, 'Underneath')
+        self.assertIn('Overlapping', self.pdf.doc[0].get_text())
+        self.assertIn('Underneath', self.pdf.doc[0].get_text())
+
+    def test_true_redaction_removes_native_layer_metadata(self):
+        from rich_boxes import apply_redactions
+        from native_layers import layers
+        section = text_sections(self.pdf.doc[0])[0]
+        edit_section(self.pdf.doc, 0, section, 'Secret text')
+        page = self.pdf.doc[0]
+        page.add_redact_annot(page.search_for('Secret')[0])
+        apply_redactions(page, images=0, graphics=0, text=0)
+        self.assertNotIn('Secret', page.get_text())
+        self.assertEqual(layers(page), [])
 
     def test_mixed_styles_are_separate_editable_boxes(self):
         p = self.pdf.doc[0]

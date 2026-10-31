@@ -34,6 +34,10 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
   Click it again in **Edit text boxes** to edit, move, resize or delete it.
   Added boxes remain editable after Save as and reopening in OpenPDF Studio.
   Text remains searchable/selectable in PDF readers and is available to Word export.
+  Boxes **grow automatically** as you type or increase the font size. Near the
+  page bottom they shift upward to fit; fonts are never silently reduced. Only
+  text exceeding a whole page still requires another box/page. The caret follows
+  the active character's font, including selections reduced to a smaller size.
 - **Page order:** drag a sidebar thumbnail to the blue insertion line. The
   sidebar scrolls when you hold the drag near its edges. The moved page remains
   selected; Undo and Redo restore page order, including its text boxes.
@@ -45,7 +49,9 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
   Drag the blue border to move **existing PDF sections**, too. Shorter edits
   collapse unused blank lines within that section and their bounds shrink to the
   remaining text. Narrower boxes expand vertically into available space at the
-  original font size; page edges and neighbouring sections are still protected.
+  original font size; page edges are still protected. Overlapping sections are
+  allowed. Edited native sections stay independent so moving one again does not
+  erase text underneath it, including after save/reopen.
   Separate table cells and side-by-side footer text remain individual sections.
 - Selecting text opens a compact **Edit section / Highlight / Redact / Copy**
   toolbar next to the selection. Mixed font styles become separate editable runs.
@@ -58,7 +64,7 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
 
 Inline editing currently handles upright pages and horizontal text. OCR is
 needed for scanned text. Existing PDF sections keep their original font size.
-Edits that overlap another section are rejected. Fonts
+Overlapping text boxes are permitted. Fonts
 missing replacement glyphs cannot be silently substituted. While typing, the
 editor uses a sampled solid background; applying retains the PDF's actual
 background graphics. Added boxes offer Arial, Times New Roman and Courier New
@@ -127,6 +133,10 @@ existing digital signatures. OCR and conversion quality depend on the input.
 ## Development
 
 ### Editing performance
+
+Windows controls are DPI-aware and use a dedicated screen UI font. Ribbon
+buttons wrap into rows; contextual toolbars use compact labelled controls so
+document font size and zoom do not distort button labels.
 
 Pointer movement updates only the Tk overlay, coalesced into 16 ms frames.
 PDF serialization, text extraction and PDF rasterization never run in the drag

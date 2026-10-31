@@ -38,10 +38,12 @@ from rich_boxes import boxes, new_box, move_page, apply_redactions
 from thumbnails import Thumbnails
 from pen_tools import add_stroke
 from render_tools import PageCache, pixmap_image
+from ui_tools import enable_dpi_awareness, configure_ui_fonts
 
 
 class App(tk.Tk):
     def __init__(self):
+        enable_dpi_awareness()
         super().__init__()
         self.title('OpenPDF Studio')
         self.geometry('1280x850')
@@ -80,6 +82,7 @@ class App(tk.Tk):
         self.page_label = tk.StringVar(value='No document')
         style = ttk.Style(self)
         style.theme_use('clam')
+        configure_ui_fonts(self, style)
         style.configure('TButton', padding=(10, 6))
         style.configure('Header.TLabel', font=('Segoe UI', 20, 'bold'))
         style.configure('TNotebook.Tab', padding=(12, 8))
@@ -115,13 +118,18 @@ class App(tk.Tk):
         for title, actions in groups.items():
             frame = ttk.Frame(tabs, padding=8)
             tabs.add(frame, text=title)
-            for label, action in actions:
-                ttk.Button(frame, text=label, command=lambda a=action: self.guard(a)).pack(side='left', padx=2)
+            buttons = ttk.Frame(frame)
+            buttons.pack(anchor='w', fill='x')
+            for n, (label, action) in enumerate(actions):
+                ttk.Button(buttons, text=label, command=lambda a=action: self.guard(a)).grid(
+                    row=n // 4, column=n % 4, padx=3, pady=3, sticky='ew')
             if title == 'Draw':
-                ttk.Label(frame, text='Thickness (pt)').pack(side='left', padx=(15, 5))
-                ttk.Spinbox(frame, textvariable=self.ink_width, from_=0.5, to=20,
+                controls = ttk.Frame(frame)
+                controls.pack(anchor='w', pady=4)
+                ttk.Label(controls, text='Thickness (pt)').pack(side='left', padx=(15, 5))
+                ttk.Spinbox(controls, textvariable=self.ink_width, from_=0.5, to=20,
                             increment=0.5, width=5).pack(side='left')
-                ttk.Label(frame, textvariable=self.ink_color_label).pack(side='left', padx=12)
+                ttk.Label(controls, textvariable=self.ink_color_label).pack(side='left', padx=12)
         body = ttk.PanedWindow(self, orient='horizontal')
         body.pack(fill='both', expand=True, padx=12, pady=10)
         side = ttk.Frame(body, width=180)
@@ -400,7 +408,7 @@ class App(tk.Tk):
                 if fitz.Rect(box['rect']).contains(point):
                     self.guard(lambda: self.begin_box(box))
                     return
-            for section in self.native_sections():
+            for section in reversed(self.native_sections()):
                 if fitz.Rect(section['rect']).contains(point):
                     self.guard(lambda: self.begin_inline(section))
                     break

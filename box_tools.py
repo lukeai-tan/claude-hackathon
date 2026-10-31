@@ -4,6 +4,7 @@ import statistics
 import fitz
 from text_tools import font_for, removal_rects
 from rich_boxes import without_boxes, apply_redactions
+from native_layers import layers, without_layers, remove_layer, register_layer
 
 
 def style_key(style):
@@ -38,7 +39,7 @@ def compact_text(text):
 
 def text_sections(page):
     result = []
-    with without_boxes(page):
+    with without_boxes(page), without_layers(page):
         blocks = page.get_text('rawdict')['blocks']
     for block in blocks:
         source_lines = block.get('lines', [])
@@ -106,7 +107,7 @@ def text_sections(page):
         section['ascent'] = max(c['origin'][1] - c['bbox'][1] for c in chars)
         section['descent'] = max(c['bbox'][3] - c['origin'][1] for c in chars)
         section['line_height'] = statistics.median(gaps) if gaps else (section['ascent'] + section['descent']) * 1.1
-    return result
+    return result + layers(page)
 
 
 def wrap_text(text, font, size, width):
@@ -139,9 +140,11 @@ def wrap_text(text, font, size, width):
 
 
 def remove_section(page, section):
+    if remove_layer(page, section):
+        return
     for rect in removal_rects(section['chars']):
         page.add_redact_annot(rect, fill=False, cross_out=False)
-    apply_redactions(page, images=0, graphics=0, text=0)
+    apply_redactions(page, preserve_native=True, images=0, graphics=0, text=0)
 
 
 def edit_section(doc, index, section, text, rect=None, current_sections=None):
@@ -179,15 +182,6 @@ def edit_section(doc, index, section, text, rect=None, current_sections=None):
         target.y1 = max(target.y1, required_bottom)
         for row in wrapped:
             if row:
-                occupied = fitz.Rect(target.x0, y - offset,
-                                     target.x0 + font.text_length(row, fontsize=style['size']),
-                                     y + below_baseline)
-                for other in current:
-                    if other['rect'] == section['rect']:
-                        continue
-                    intersection = occupied & fitz.Rect(other['rect'])
-                    if not intersection.is_empty and intersection.width > 0.5 and intersection.height > 0.5:
-                        raise ValueError('This edit would overlap another text section. Resize the box or shorten the text.')
                 placements.append(((target.x0, y), row))
             y += line_height
         if data:
@@ -202,7 +196,10 @@ def edit_section(doc, index, section, text, rect=None, current_sections=None):
                 shape.insert_text(point, row, fontname=alias, fontsize=style['size'],
                                  color=fitz.sRGB_to_pdf(style['color']),
                                  fill_opacity=style.get('alpha', 255) / 255)
+            before_streams = set(page.get_contents())
             shape.commit()
+            stream = next(r for r in page.get_contents() if r not in before_streams)
+            register_layer(page, stream, section, '\n'.join(row for _, row in placements), alias)
     except Exception:
         # Callers retain full document snapshots for rollback; never hide errors.
         raise

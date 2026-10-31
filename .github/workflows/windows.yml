@@ -26,6 +26,8 @@ jobs:
       - name: Install OCR runtime
         run: choco install tesseract --yes --no-progress
       - name: Test desktop controls before packaging
+        env:
+          OPENPDF_UI_CAPTURE: '1'
         timeout-minutes: 2
         shell: pwsh
         run: |
@@ -55,4 +57,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = 'build-${{ github.run_number }}'
-          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'Performance update: lightweight drag overlays with 16 ms frame scheduling, grouped text removal, current-page previews, cached rendering/fonts/text geometry, visible-page thumbnails and single-page invalidation. Bulk styled-text processing and fast undo snapshots remove per-character/full-document work from editing. Includes existing-text dragging, rich text boxes, Pen, page reordering, Word export and OCR. Source and packaged GUI performance checks run in CI. Unsigned executable.'
+          gh release create $tag dist/OpenPDF-Studio.exe --title "OpenPDF Studio build ${{ github.run_number }}" --target '${{ github.sha }}' --notes 'UI and text-editing fixes: DPI-aware controls with separate UI fonts and compact toolbars; active-font-sized caret; automatic added-box sizing without reducing font size; overlapping native text sections remain independently editable. Retains lightweight drag frames, caches and single-page refresh. Source and packaged GUI/performance tests run in CI. Unsigned executable.'
