@@ -11,6 +11,8 @@ import tempfile
 
 import fitz
 from PIL import Image
+from text_tools import find_matches, replace_match, select_text
+from rich_boxes import apply_redactions
 
 
 def page_numbers(spec, count):
@@ -44,7 +46,9 @@ class PDF:
         self.doc.close()
 
     def bytes(self):
-        return self.doc.tobytes(garbage=4, deflate=True)
+        # Undo/preview snapshots are transient. Expensive garbage collection and
+        # compression belong to Save as, not every mouse gesture or edit.
+        return self.doc.tobytes(garbage=0, deflate=False)
 
     def restore(self, data):
         self.doc.close()
@@ -108,7 +112,7 @@ class PDF:
                 raise ValueError('Replacement does not fit the original area. Use a smaller font.')
         for rect in boxes:
             page.add_redact_annot(rect, fill=(1, 1, 1))
-        page.apply_redactions(images=0, graphics=0)
+        apply_redactions(page, images=0, graphics=0)
         for rect in boxes:
             self.insert_text(index, rect, new, size)
         return len(boxes)
@@ -116,7 +120,7 @@ class PDF:
     def redact(self, index, rect):
         page = self.doc[index]
         page.add_redact_annot(rect, fill=(0, 0, 0))
-        page.apply_redactions(images=2, graphics=2, text=0)
+        apply_redactions(page, images=2, graphics=2, text=0)
 
     def sanitize(self):
         self.doc.set_metadata({})
@@ -184,6 +188,20 @@ class PDF:
         Path(path).write_text('\n\f\n'.join(p.get_text() for p in self.doc), encoding='utf-8')
 
     def export_docx(self, path):
+        """Reconstruct editable paragraphs, runs, tables, images and page layout."""
+        from pdf2docx import Converter
+        if not any(p.get_text().strip() for p in self.doc):
+            raise ValueError('This PDF has no text layer. Run OCR first for editable Word text.')
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'source.pdf'
+            self.save(source)
+            converter = Converter(str(source))
+            try:
+                converter.convert(str(path), multi_processing=False)
+            finally:
+                converter.close()
+
+    def export_docx_text(self, path):
         from docx import Document
         out = Document()
         for i, page in enumerate(self.doc):

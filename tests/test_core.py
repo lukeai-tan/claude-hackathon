@@ -83,7 +83,7 @@ class PDFTests(unittest.TestCase):
         self.pdf.highlight(0, 'public')
         self.pdf.watermark('DRAFT')
         self.pdf.number_pages()
-        self.pdf.export_docx(self.root / 'export.docx')
+        self.pdf.export_docx_text(self.root / 'export.docx')
         self.pdf.export_text(self.root / 'export.txt')
         self.pdf.export_images(self.root)
         self.assertIn('public', (self.root / 'export.txt').read_text())
