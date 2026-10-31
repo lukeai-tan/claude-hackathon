@@ -129,7 +129,7 @@ Integrated directly into OpenSlides, **Ask Claudia** uses Anthropic's Claude API
 User Request: "Create a slide detailing the history of onions."
    │
    ▼
-Ask Claudia (Claude 3.5 Sonnet / Haiku)
+Ask Claudia (Claude 5.5 Sonnet / Haiku)
    │
    ▼ Strict JSON Output (Layout AST, SVG paths, Theme configs)
 Client-Side Validation & Safety Sanitizer
