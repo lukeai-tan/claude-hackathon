@@ -146,6 +146,20 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/github-script@v7
+        id: pages
+        with:
+          script: |
+            try {
+              await github.request('GET /repos/{owner}/{repo}/pages', context.repo);
+              core.setOutput('enabled', 'true');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setOutput('enabled', 'false');
+              core.notice('Homepage is built and included in OpenSuite. To publish the web version, a repository owner must enable Settings > Pages > GitHub Actions, then rerun this workflow.');
+            }
       - uses: actions/configure-pages@v5
+        if: steps.pages.outputs.enabled == 'true'
       - uses: actions/deploy-pages@v4
+        if: steps.pages.outputs.enabled == 'true'
         id: deployment

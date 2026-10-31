@@ -2,7 +2,7 @@
 
 An open-source slide deck editor that combines Canva-style design speed with PowerPoint-grade control. It runs in the browser, works offline, and exports real, editable `.pptx` files. Free, no account, MIT licensed.
 
-**Live app:** https://shira421.github.io/claude-hackathon/ (after GitHub Pages is enabled, see [Deploy](#deploy))
+**Live app:** https://rishabhshenoy03.github.io/claude-hackathon/OpenSlides/ (after GitHub Pages is enabled, see [Deploy](#deploy))
 
 Built for Autonomous SG 2026, NUS Hackers track ("reverse engineer something expensive and make it cheap and open").
 
@@ -10,7 +10,7 @@ Built for Autonomous SG 2026, NUS Hackers track ("reverse engineer something exp
 
 OpenSlides is the slide design app in our suite. **Claudia** is its AI assistant: choose **Ask Claudia** to design with her. Existing Deckforge decks and saved desktop data remain compatible. New deck exports use `.openslides.json`.
 
-See [Releases](https://github.com/shira421/claude-hackathon/releases) for the installer and portable `.exe`, or build on Windows:
+See [Releases](https://github.com/RishabhShenoy03/claude-hackathon/releases) for the installer and portable `.exe`, or build on Windows:
 
 ```sh
 npm ci
@@ -18,7 +18,7 @@ npm run desktop:install
 npm run desktop:build
 ```
 
-Files are written to `release/`. `npm run desktop:preview` launches a previously built desktop renderer. Windows builds are unsigned. The release workflow runs unit, browser and packaged launch checks before publishing a prerelease.
+Files are written to `release/`. `npm run desktop:preview` launches a previously built desktop renderer. Windows builds are unsigned. The release workflow runs unit, browser and packaged launch checks before publishing a release.
 
 The creation sidebar adds 38 original elements, favourites and recents; 20 theme presets and saved themes; 19 offline font families and six pairings; 12 original templates; and reusable design agents with configurable instructions and permitted tools. Click or drag an element onto a slide. Open Properties for precise controls. Slide reordering is in the bottom filmstrip.
 
@@ -115,7 +115,7 @@ npm run build      # type-check and build to dist/
 
 ## Deploy
 
-The included workflow (`.github/workflows/deploy.yml`) builds the app and publishes it to GitHub Pages on every push to `master`. Turn it on once in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+The suite workflow (`../../.github/workflows/windows.yml`) builds the homepage and this app, then publishes both to GitHub Pages after the Windows release passes. Turn it on once in the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 Any static host works too: run `npm run build` and serve `dist/`. Set `BASE_PATH` if the app is not served from the domain root.
 

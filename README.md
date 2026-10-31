@@ -2,7 +2,7 @@
 
 A local-first creative suite for documents and presentations. The Windows app includes **OpenPDF** and **OpenSlides**, with a shared home, purple workspace styling and **Ask Claudia** in OpenSlides.
 
-[Download Windows apps](https://github.com/RishabhShenoy03/claude-hackathon/releases/latest) · [Suite homepage](https://rishabhshenoy03.github.io/claude-hackathon/)
+[Download Windows apps](https://github.com/RishabhShenoy03/claude-hackathon/releases/latest) · [Homepage source](source-code/main/web/index.html)
 
 ## Install
 
@@ -36,7 +36,7 @@ npm test
 npm run build:web
 ```
 
-Serve `site/` with a static web server to preview the suite and browser editor. For Windows packages, install Tesseract OCR, then:
+Serve `site/` with a static web server to preview the suite and browser editor. For the public website, a repository owner must first choose **Settings → Pages → Source: GitHub Actions**, then rerun the workflow. It publishes to `https://rishabhshenoy03.github.io/claude-hackathon/`. The homepage is always available inside the desktop suite and as the `OpenSuite-website` workflow artifact. For Windows packages, install Tesseract OCR, then:
 
 ```powershell
 ./source-code/OpenPDF/build-windows.ps1
