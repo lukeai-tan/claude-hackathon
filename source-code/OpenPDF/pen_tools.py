@@ -3,7 +3,7 @@ import math
 import fitz
 
 
-def add_stroke(page, points, color='#1761c5', width=2.5):
+def add_stroke(page, points, color='#1761c5', width=2.5, *, highlight=False):
     width = float(width)
     if not math.isfinite(width) or not .5 <= width <= 20:
         raise ValueError('Choose a pen thickness between 0.5 and 20 points.')
@@ -27,7 +27,9 @@ def add_stroke(page, points, color='#1761c5', width=2.5):
     annot.set_colors(stroke=rgb)
     annot.set_border(width=width)
     annot.set_flags(fitz.PDF_ANNOT_IS_PRINT)
-    annot.set_info(title='OpenPDF Studio', subject='Freehand pen')
+    annot.set_info(title='OpenPDF Studio', subject='Freehand highlight' if highlight else 'Freehand pen')
+    if highlight:
+        annot.set_opacity(0.35)
+        annot.set_blendmode('Multiply')
     annot.update()
     return annot.xref
-

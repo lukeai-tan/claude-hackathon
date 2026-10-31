@@ -70,6 +70,8 @@ class App(tk.Tk):
         self.ink_color = '#7054d7'
         self.ink_width = tk.StringVar(value='2.5')
         self.ink_color_label = tk.StringVar(value='Ink: #7054d7')
+        self.highlight_width = 12
+        self.highlight_menu = None
         self.selection_mode = tk.StringVar(value='text')
         self.busy = False
         self.results = queue.Queue()
@@ -237,7 +239,7 @@ class App(tk.Tk):
         if not self.pdf or self.inline:
             return
         self.cancel_stroke()
-        self.canvas.configure(cursor='crosshair' if self.selection_mode.get() in ('pen', 'addbox') else '')
+        self.canvas.configure(cursor='crosshair' if self.selection_mode.get() in ('pen', 'freehighlight', 'addbox') else '')
         self.hide_context()
         def raster():
             pix = self.pdf.doc[self.index].get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), alpha=False)
@@ -309,11 +311,15 @@ class App(tk.Tk):
             self.render()
 
     def wheel(self, event):
-        up = getattr(event, 'num', None) == 4 or getattr(event, 'delta', 0) > 0
+        delta = getattr(event, 'delta', 0)
+        number = getattr(event, 'num', None)
+        if not delta and number not in (4, 5, 6, 7):
+            return 'break'
+        up = number in (4, 6) or delta > 0
         if event.state & 0x4:
             self.scale(1.1 if up else 1 / 1.1)
         elif event.widget is self.canvas:
-            self.canvas.yview_scroll(-3 if up else 3, 'units')
+            self.canvas_scroll.wheel(event)
         return 'break'
 
     def find_shortcut(self, event=None):
@@ -331,7 +337,7 @@ class App(tk.Tk):
             self.guard(self.inline.commit)
             if self.inline:
                 return
-        if self.selection_mode.get() == 'pen':
+        if self.selection_mode.get() in ('pen', 'freehighlight'):
             self.guard(lambda: self.begin_stroke(event))
             return
         if self.pdf and self.selection_mode.get() == 'edit':
@@ -358,7 +364,7 @@ class App(tk.Tk):
                 self.selection_mode.set('edit')
                 return
         self.cancel_stroke()
-        self.canvas.configure(cursor='crosshair' if self.selection_mode.get() == 'pen' else '')
+        self.canvas.configure(cursor='crosshair' if self.selection_mode.get() in ('pen', 'freehighlight') else '')
         self.hide_context()
         self.canvas.delete('selection')
         self.canvas.delete('text-box')
@@ -366,7 +372,7 @@ class App(tk.Tk):
         self.selection = None
 
     def drag_selection(self, event):
-        if self.selection_mode.get() == 'pen':
+        if self.selection_mode.get() in ('pen', 'freehighlight'):
             if not self.busy:
                 self.extend_stroke(event)
             return
@@ -375,7 +381,7 @@ class App(tk.Tk):
         x, y = self.origin
         x2, y2 = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         self.canvas.delete('selection')
-        if self.selection_mode.get() == 'text' and self.pdf:
+        if self.selection_mode.get() in ('text', 'highlight') and self.pdf:
             page = self.pdf.doc[self.index]
             start = fitz.Point((x - 20) / self.zoom, (y - 20) / self.zoom) * page.derotation_matrix
             end = fitz.Point((x2 - 20) / self.zoom, (y2 - 20) / self.zoom) * page.derotation_matrix
@@ -394,6 +400,11 @@ class App(tk.Tk):
 
     def edit_mode(self):
         self.require()
+        if self.inline:
+            self.inline.commit()
+        if self.selection_mode.get() == 'edit':
+            self.stop_pen()
+            return
         self.selection_mode.set('edit')
         self.render()
         self.status.set('Edit text boxes: click an outlined section and type directly. Click outside to apply; Escape cancels.')
@@ -416,14 +427,20 @@ class App(tk.Tk):
             self.context_frame = None
 
     def selection_popup(self, event=None):
-        if self.selection_mode.get() == 'pen':
+        if self.selection_mode.get() in ('pen', 'freehighlight'):
             if self.ink_points and not self.busy:
                 self.extend_stroke(event)
                 points, index = list(self.ink_points), self.ink_page
                 color, width = self.stroke_color, self.stroke_width
+                highlight = self.selection_mode.get() == 'freehighlight'
                 self.cancel_stroke()
-                self.guard(lambda: self.change(lambda: add_stroke(self.pdf.doc[index], points, color, width),
+                self.guard(lambda: self.change(lambda: add_stroke(self.pdf.doc[index], points, color, width, highlight=highlight),
+                                               'Highlight added. Keep drawing; Undo removes the last stroke. Escape exits.' if highlight else
                                                'Pen stroke added. Keep drawing; Undo removes the last stroke. Escape exits Pen.', dirty_pages={index}))
+            return
+        if self.selection_mode.get() == 'highlight':
+            if not self.busy and self.pdf and self.text_quads:
+                self.guard(self.highlight)
             return
         if self.selection_mode.get() == 'addbox' and self.pdf and not self.inline and not self.busy:
             def create():
@@ -551,8 +568,8 @@ class App(tk.Tk):
     def escape_mode(self, event=None):
         if self.ink_points:
             self.cancel_stroke()
-            self.status.set('Unfinished stroke cancelled. Pen remains active.')
-        elif self.selection_mode.get() in ('pen', 'addbox'):
+            self.status.set('Unfinished stroke cancelled. Drawing mode remains active.')
+        elif self.selection_mode.get() in ('pen', 'freehighlight', 'highlight', 'addbox', 'edit'):
             self.stop_pen()
         return 'break'
 
@@ -563,8 +580,9 @@ class App(tk.Tk):
     def begin_stroke(self, event):
         self.require()
         self.cancel_stroke()
-        self.stroke_width = self.pen_width_value()
-        self.stroke_color = self.ink_color
+        highlight = self.selection_mode.get() == 'freehighlight'
+        self.stroke_width = self.highlight_width if highlight else self.pen_width_value()
+        self.stroke_color = '#ffff00' if highlight else self.ink_color
         self.ink_page = self.index
         x = (self.canvas.canvasx(event.x) - 20) / self.zoom
         y = (self.canvas.canvasy(event.y) - 20) / self.zoom
@@ -577,6 +595,8 @@ class App(tk.Tk):
                                                    x * self.zoom + 20.01, y * self.zoom + 20,
                                                    fill=self.stroke_color, width=self.stroke_width * self.zoom,
                                                    capstyle='round', joinstyle='round', tags='ink-preview')
+        if highlight:
+            self.canvas.itemconfigure(self.ink_preview, stipple='gray50')
 
     def extend_stroke(self, event):
         if not self.ink_points or not event or self.ink_page != self.index:
@@ -716,9 +736,38 @@ class App(tk.Tk):
     def highlight(self):
         self.require()
         if not self.text_quads:
-            raise ValueError('Choose Select text and drag across the characters you want to highlight.')
+            if self.highlight_menu:
+                self.highlight_menu.destroy()
+            menu = tk.Menu(self, tearoff=False)
+            self.highlight_menu = menu
+            menu.add_command(label='Highlight text', command=lambda: self.guard(lambda: self.highlight_mode(False)))
+            menu.add_command(label='Freehand highlight', command=lambda: self.guard(lambda: self.highlight_mode(True)))
+            menu.add_separator()
+            menu.add_command(label='Highlighter thickness…', command=lambda: self.guard(self.highlighter_thickness))
+            menu.add_command(label='Stop highlighting', command=lambda: self.guard(self.stop_pen))
+            try:
+                menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+            finally:
+                menu.grab_release()
+            return
         quads = list(self.text_quads)
         self.change(lambda: self.pdf.doc[self.index].add_highlight_annot(quads), 'Highlighted only the selected text.', dirty_pages={self.index})
+
+    def highlight_mode(self, freehand=False):
+        self.require()
+        self.clear_selection()
+        self.selection_mode.set('freehighlight' if freehand else 'highlight')
+        self.render()
+        self.status.set('Freehand highlight: drag anywhere on the page. Escape exits; Undo removes a stroke.' if freehand else
+                        'Highlight text: drag across characters to mark them. Escape exits; Undo removes a highlight.')
+
+
+    def highlighter_thickness(self):
+        width = sd.askfloat('Highlighter thickness', 'Thickness in points (0.5–20):',
+                            initialvalue=self.highlight_width, minvalue=.5, maxvalue=20, parent=self)
+        if width is not None:
+            self.highlight_width = width
+
 
     def comment(self):
         rect = self.rect()
@@ -982,9 +1031,54 @@ class App(tk.Tk):
 
     def watermark(self):
         self.require()
-        text = sd.askstring('Watermark', 'Watermark text:', parent=self)
-        if text:
-            self.change(lambda: self.pdf.watermark(text))
+        window = tk.Toplevel(self)
+        window.title('Watermark')
+        window.transient(self)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        text = tk.StringVar()
+        layout = tk.StringVar(value='Full page')
+        angle = tk.StringVar(value='45')
+        opacity = tk.StringVar(value='25')
+        size = tk.StringVar(value='36')
+        scope = tk.StringVar(value='All pages')
+        colour = tk.StringVar(value='#a6a6a6')
+        layouts = {'Top left': 'top-left', 'Centered': 'center', 'Full page': 'full-page', 'Repeated': 'tiled'}
+        controls = [
+            ('Text', ttk.Entry(frame, textvariable=text, width=36)),
+            ('Layout', ttk.Combobox(frame, textvariable=layout, values=list(layouts), state='readonly')),
+            ('Angle (degrees)', ttk.Spinbox(frame, textvariable=angle, from_=-180, to=180, increment=15)),
+            ('Opacity (%)', ttk.Spinbox(frame, textvariable=opacity, from_=1, to=100)),
+            ('Font size (pt; full page auto-fits)', ttk.Spinbox(frame, textvariable=size, from_=1, to=300)),
+            ('Pages', ttk.Combobox(frame, textvariable=scope, values=['All pages', 'Current page'], state='readonly')),
+        ]
+        for row, (label, widget) in enumerate(controls):
+            ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', padx=(0, 12), pady=5)
+            widget.grid(row=row, column=1, sticky='ew', pady=5)
+        def choose_colour():
+            selected = colorchooser.askcolor(parent=window, color=colour.get(), title='Watermark colour')[1]
+            if selected:
+                colour.set(selected)
+        ttk.Button(frame, text='Colour', command=choose_colour).grid(row=6, column=0, sticky='w', pady=5)
+        ttk.Label(frame, textvariable=colour).grid(row=6, column=1, sticky='w')
+        def apply():
+            rgb = tuple(int(colour.get()[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            try:
+                options = dict(layout=layouts[layout.get()], angle=float(angle.get()),
+                               opacity=float(opacity.get()) / 100, fontsize=float(size.get()), color=rgb,
+                               pages=[self.index] if scope.get() == 'Current page' else None)
+            except ValueError:
+                raise ValueError('Enter numeric angle, opacity and font size values.') from None
+            self.change(lambda: self.pdf.watermark(text.get(), **options), 'Watermark added. Undo removes it.')
+            window.destroy()
+        actions = ttk.Frame(frame)
+        actions.grid(row=7, column=0, columnspan=2, sticky='e', pady=(12, 0))
+        ttk.Button(actions, text='Cancel', command=window.destroy).pack(side='left', padx=4)
+        ttk.Button(actions, text='Apply', command=lambda: self.guard(apply)).pack(side='left')
+        window.bind('<Escape>', lambda event: window.destroy())
+        controls[0][1].focus_set()
+        window.grab_set()
 
     def numbers(self):
         self.require()

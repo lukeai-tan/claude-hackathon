@@ -171,9 +171,9 @@ class PDF:
                 return
         raise ValueError('Field not found.')
 
-    def watermark(self, text):
-        for page in self.doc:
-            page.insert_text((36, 36), text, fontsize=16, color=(0.65, 0.65, 0.65), fill_opacity=0.5)
+    def watermark(self, text, **options):
+        from watermark_tools import add_watermarks
+        add_watermarks(self.doc, text, **options)
 
     def number_pages(self):
         for i, page in enumerate(self.doc):

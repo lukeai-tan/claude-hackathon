@@ -1,3 +1,4 @@
+from pdf_layout import ResponsiveToolbar, visible_toolbar_y
 """On-page text editor and compact contextual actions."""
 import ctypes
 import io
@@ -90,6 +91,7 @@ class InlineEditor:
             app.canvas.tag_bind(edge, '<Enter>', lambda e: app.canvas.configure(cursor='fleur'))
             app.canvas.tag_bind(edge, '<Leave>', lambda e: app.canvas.configure(cursor=''))
         self.linespace = self.font.metrics('linespace')
+        self.toolbar_layout = ResponsiveToolbar(self)
         self.toolbar.update_idletasks()  # once on creation, never during a drag
         self.toolbar_size = (self.toolbar.winfo_reqwidth(), self.toolbar.winfo_reqheight())
         self.position()
@@ -135,6 +137,7 @@ class InlineEditor:
         ty = y0 - th - 12
         if ty < top:
             ty = y0 + height + 14
+        ty = visible_toolbar_y(canvas, ty, th)
         canvas.coords(self.toolbar_id, tx, ty)
         canvas.tag_raise(self.toolbar_id)
 

@@ -1,7 +1,7 @@
 name: OpenSuite build and release
 on:
   push:
-    branches: [master]
+    branches: [master, pdf-build-12]
   workflow_dispatch:
 permissions:
   contents: write
@@ -133,13 +133,23 @@ jobs:
             release/*.exe
             release/SHA256SUMS.txt
       - name: Publish Windows release
+        if: github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = 'opensuite-v0.3.0-${{ github.run_number }}'
-          gh release create $tag release/*.exe release/SHA256SUMS.txt --target '${{ github.sha }}' --title 'OpenSuite 0.3.0 — Windows suite' --notes-file RELEASE-NOTES.md --latest
+          $releases = gh release list --limit 100 --json tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read releases' }
+          $buildNumber = 12
+          foreach ($release in $releases) {
+            if ($release.tagName -match '^build-(\d+)$') {
+              $buildNumber = [Math]::Max($buildNumber, [int]$Matches[1] + 1)
+            }
+          }
+          $tag = "build-$buildNumber"
+          gh release create $tag release/*.exe release/SHA256SUMS.txt --target '${{ github.sha }}' --title "OpenSuite build $buildNumber — PDF update" --notes-file source-code/OpenPDF/RELEASE-NOTES.md --latest
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
   homepage:
+    if: github.ref == 'refs/heads/master'
     needs: [verify, windows]
     runs-on: ubuntu-latest
     environment:
