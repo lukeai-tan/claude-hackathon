@@ -62,7 +62,7 @@ async function startSuite({openSlides,getSlidesWindow}){
   try{
    const home=await homeWindow.webContents.executeJavaScript(`({title:document.title,apps:document.querySelectorAll('[data-app]').length,bridge:!!window.openSuite})`);
    if(home.title!=='OpenSuite'||home.apps!==2||!home.bridge)throw new Error('Suite home failed to load.');
-   await fs.writeFile(path.join(process.cwd(),'opensuite-home.png'),(await homeWindow.webContents.capturePage()).toPNG());
+   try{await fs.writeFile(path.join(process.cwd(),'opensuite-home.png'),(await homeWindow.webContents.capturePage()).toPNG());}catch(captureError){console.warn('Skipped home screenshot:',String(captureError));}// capturePage can throw UnknownVizError under headless xvfb; the screenshot is only diagnostic.
    await homeWindow.webContents.executeJavaScript("window.openSuite.launch('openslides')");
    const slideWindow=getSlidesWindow();
    const slide=await slideWindow.webContents.executeJavaScript(`(async()=>{await document.fonts.ready;for(let i=0;i<100;i++){if(document.querySelector('.template-card'))break;await new Promise(r=>setTimeout(r,50));}return {title:document.title,ready:!!document.querySelector('.template-card'),suite:window.deckforgeDesktop.suiteMode};})()`);
