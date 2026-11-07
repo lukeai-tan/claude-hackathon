@@ -1,0 +1,30 @@
+# Auto-applies `area:` labels to PRs based on which paths changed.
+# Label names MUST match the labels configured on the repo exactly, or
+# GitHub will auto-create an off-color duplicate. Format: actions/labeler@v5.
+
+"area: openpdf":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'source-code/OpenPDF/**'
+
+"area: openslides":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'source-code/OpenSlides/**'
+
+"area: suite":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'source-code/main/desktop/**'
+
+"area: homepage":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'source-code/main/web/**'
+          - 'scripts/build-web.mjs'
+
+"area: ci/release":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'scripts/**'

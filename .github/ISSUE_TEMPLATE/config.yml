@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/lukeai-tan/open-suite/discussions
+    about: Ask questions or share ideas here (enable Discussions in Settings > Features for this link to work).
