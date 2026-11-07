@@ -2,6 +2,7 @@ name: OpenSuite build and release
 on:
   push:
     branches: [master, pdf-build-12]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: write
@@ -137,17 +138,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $releases = gh release list --limit 100 --json tagName | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Could not read releases' }
-          $buildNumber = 12
-          foreach ($release in $releases) {
-            if ($release.tagName -match '^build-(\d+)$') {
-              $buildNumber = [Math]::Max($buildNumber, [int]$Matches[1] + 1)
-            }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if (-not $version) { throw 'No version in package.json' }
+          $tag = "v$version"
+          gh release view $tag > $null 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::notice::Release $tag already exists; skipping publish. Bump 'version' in package.json to cut a new release."
+          } else {
+            gh release create $tag release/*.exe release/SHA256SUMS.txt --target '${{ github.sha }}' --title "OpenSuite $tag" --notes-file source-code/OpenPDF/RELEASE-NOTES.md --latest
+            if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
           }
-          $tag = "build-$buildNumber"
-          gh release create $tag release/*.exe release/SHA256SUMS.txt --target '${{ github.sha }}' --title "OpenSuite build $buildNumber — PDF update" --notes-file source-code/OpenPDF/RELEASE-NOTES.md --latest
-          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
   linux:
     needs: verify
     runs-on: ubuntu-24.04
@@ -233,7 +233,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --jq '[.[] | select(.target_commitish == "${{ github.sha }}")][0].tag_name')
-          if [ -z "$tag" ] || [ "$tag" = null ]; then echo 'No release for this commit'; exit 1; fi
+          if [ -z "$tag" ] || [ "$tag" = null ]; then echo '::notice::No release for this commit (version unchanged); skipping Linux upload.'; exit 0; fi
           gh release upload "$tag" release/* --repo "${{ github.repository }}" --clobber
   homepage:
     if: github.ref == 'refs/heads/master'

@@ -1,5 +1,3 @@
-# OpenSuite build 12 — PDF update
-
 This release retains the integrated OpenSuite design and includes the existing OpenSlides editor unchanged.
 
 PDF improvements:

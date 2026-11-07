@@ -7,6 +7,22 @@ const {validateApp,allowedExternal,resolveAsset}=require('./rules.cjs');
 const ROOT=path.join(__dirname,'..','web');
 let homeWindow,pdfProcess;
 const mime={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.png':'image/png'};
+// An AppImage's AppRun injects its bundled library paths (LD_LIBRARY_PATH, Python, GTK,
+// fontconfig, GStreamer…) into the environment. They leak into child processes and make a
+// self-contained binary like OpenPDF load the Electron bundle's mismatched libraries and crash.
+// Strip only the AppImage-owned entries so OpenPDF runs against the system libraries it was built
+// for. Outside an AppImage (APPDIR unset: unpacked Linux, .deb, Windows, macOS) this is a no-op.
+function childEnv(){
+ const env={...process.env},appDir=env.APPDIR;
+ if(!appDir)return env;
+ const scrub=value=>value.split(':').filter(part=>part&&!part.startsWith(appDir)).join(':');
+ for(const key of ['LD_LIBRARY_PATH','LD_PRELOAD','PYTHONPATH','PYTHONHOME','GTK_PATH','GDK_PIXBUF_MODULE_FILE','GDK_PIXBUF_MODULEDIR','GCONV_PATH','GIO_MODULE_DIR','GSETTINGS_SCHEMA_DIR','FONTCONFIG_PATH','FONTCONFIG_FILE','GST_PLUGIN_SYSTEM_PATH','GST_PLUGIN_PATH','QT_PLUGIN_PATH','XDG_DATA_DIRS']){
+  if(env[key]===undefined)continue;
+  const cleaned=scrub(env[key]);
+  if(cleaned)env[key]=cleaned;else delete env[key];
+ }
+ return env;
+}
 function homeOnly(event){if(!homeWindow||event.sender!==homeWindow.webContents||event.senderFrame!==event.sender.mainFrame||!event.senderFrame.url.startsWith('opensuite://home/'))throw new Error('Untrusted suite request.');}
 async function openHome(){
  if(homeWindow&&!homeWindow.isDestroyed()){homeWindow.show();homeWindow.focus();return homeWindow;}
@@ -24,7 +40,7 @@ async function launchPdf(selfTest=false){
  try{await fs.access(executable);}catch{throw new Error('OpenPDF is missing from this installation. Reinstall the complete OpenSuite package.');}
  const cwd=selfTest?await fs.mkdtemp(path.join(app.getPath('temp'),'opensuite-check-')):app.getPath('documents');
  return new Promise((resolve,reject)=>{
-  const child=spawn(executable,selfTest?['--self-test']:[],{cwd,stdio:'ignore',windowsHide:false,shell:false});pdfProcess=child;
+  const child=spawn(executable,selfTest?['--self-test']:[],{cwd,env:childEnv(),stdio:'ignore',windowsHide:false,shell:false});pdfProcess=child;
   child.once('error',()=>reject(new Error('OpenPDF could not start. Reinstall OpenSuite.')));
   if(!selfTest)child.once('spawn',()=>resolve({message:'OpenPDF opened in its own window.'}));
   child.once('exit',async(code)=>{if(selfTest){try{await fs.copyFile(path.join(cwd,'smoke-output.log'),path.join(process.cwd(),'opensuite-pdf-check.log'));}catch{}}if(pdfProcess===child)pdfProcess=null;if(selfTest){if(code===0)resolve({message:'Bundled OpenPDF passed its checks.'});else reject(new Error('Bundled OpenPDF check failed: '+code));}});
@@ -46,7 +62,7 @@ async function startSuite({openSlides,getSlidesWindow}){
   try{
    const home=await homeWindow.webContents.executeJavaScript(`({title:document.title,apps:document.querySelectorAll('[data-app]').length,bridge:!!window.openSuite})`);
    if(home.title!=='OpenSuite'||home.apps!==2||!home.bridge)throw new Error('Suite home failed to load.');
-   await fs.writeFile(path.join(process.cwd(),'opensuite-home.png'),(await homeWindow.webContents.capturePage()).toPNG());
+   try{await fs.writeFile(path.join(process.cwd(),'opensuite-home.png'),(await homeWindow.webContents.capturePage()).toPNG());}catch(captureError){console.warn('Skipped home screenshot:',String(captureError));}// capturePage can throw UnknownVizError under headless xvfb; the screenshot is only diagnostic.
    await homeWindow.webContents.executeJavaScript("window.openSuite.launch('openslides')");
    const slideWindow=getSlidesWindow();
    const slide=await slideWindow.webContents.executeJavaScript(`(async()=>{await document.fonts.ready;for(let i=0;i<100;i++){if(document.querySelector('.template-card'))break;await new Promise(r=>setTimeout(r,50));}return {title:document.title,ready:!!document.querySelector('.template-card'),suite:window.deckforgeDesktop.suiteMode};})()`);
