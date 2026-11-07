@@ -21,7 +21,8 @@ if '--self-test' in sys.argv:
         os._exit(1)
     sys.excepthook = test_exception
 elif sys.stdout is None or sys.stderr is None:
-    _log_folder = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'OpenPDFStudio'
+    _log_base = os.environ.get('LOCALAPPDATA') or os.environ.get('XDG_STATE_HOME') or Path.home() / '.local' / 'state'
+    _log_folder = Path(_log_base) / 'OpenPDFStudio'
     _log_folder.mkdir(parents=True, exist_ok=True)
     _log = open(_log_folder / 'app.log', 'a', encoding='utf-8', buffering=1)
     sys.stdout = sys.stdout or _log

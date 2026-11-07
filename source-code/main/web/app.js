@@ -1,6 +1,6 @@
 'use strict';
 const releaseBase='https://github.com/RishabhShenoy03/claude-hackathon/releases/latest/download/';
-const downloads={suite:'OpenSuite-Setup-0.3.0-x64.exe',portable:'OpenSuite-Portable-0.3.0-x64.exe',pdf:'OpenPDF.exe',slides:'OpenSlides-Portable-0.3.0-x64.exe'};
+const downloads={suite:'OpenSuite-Setup-0.3.0-x64.exe',portable:'OpenSuite-Portable-0.3.0-x64.exe',pdf:'OpenPDF.exe',slides:'OpenSlides-Portable-0.3.0-x64.exe',linux:'OpenSuite-0.3.0-x86_64.AppImage'};
 const bridge=window.openSuite;
 let noticeTimer;
 function notify(message){const n=document.querySelector('#notice');n.textContent=message;n.hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>{n.hidden=true;},6500);}

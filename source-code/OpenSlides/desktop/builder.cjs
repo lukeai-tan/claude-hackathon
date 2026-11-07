@@ -7,4 +7,6 @@ module.exports={
   win:{target:[{target:'nsis',arch:['x64']},{target:'portable',arch:['x64']}],icon:'public/icon-512.png',signAndEditExecutable:false},
   nsis:{oneClick:false,allowToChangeInstallationDirectory:true,artifactName:'OpenSlides-Setup-${version}-${arch}.${ext}'},
   portable:{artifactName:'OpenSlides-Portable-${version}-${arch}.${ext}'},
+  linux:{target:[{target:'AppImage',arch:['x64']}],icon:'public/icon-512.png',category:'Office',executableName:'openslides'},
+  appImage:{artifactName:'OpenSlides-${version}-${arch}.${ext}'},
 };

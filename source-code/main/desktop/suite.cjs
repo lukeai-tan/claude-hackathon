@@ -19,7 +19,8 @@ async function openHome(){
 }
 async function launchPdf(selfTest=false){
  if(pdfProcess&&!pdfProcess.killed&&pdfProcess.exitCode===null&&!selfTest)return {message:'OpenPDF is already open. Switch to its window.'};
- const executable=app.isPackaged?path.join(process.resourcesPath,'OpenPDF','OpenPDF.exe'):path.resolve(__dirname,'../../OpenPDF/dist/OpenPDF.exe');
+ const name=process.platform==='win32'?'OpenPDF.exe':'OpenPDF';
+ const executable=app.isPackaged?path.join(process.resourcesPath,'OpenPDF',name):path.resolve(__dirname,'../../OpenPDF/dist',name);
  try{await fs.access(executable);}catch{throw new Error('OpenPDF is missing from this installation. Reinstall the complete OpenSuite package.');}
  const cwd=selfTest?await fs.mkdtemp(path.join(app.getPath('temp'),'opensuite-check-')):app.getPath('documents');
  return new Promise((resolve,reject)=>{

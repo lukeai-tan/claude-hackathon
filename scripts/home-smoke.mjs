@@ -9,6 +9,7 @@ try{
  assert.equal(await page.locator('[data-app]').count(),2);
  assert.match(await page.locator('[data-app="openpdf"]').getAttribute('href'),/OpenPDF.exe$/);
  assert.equal(await page.locator('[data-app="openslides"]').getAttribute('href'),'./OpenSlides/');
+ assert.match(await page.locator('[data-download="linux"]').getAttribute('href'),/OpenSuite-[\d.]+-x86_64\.AppImage$/);
  await page.screenshot({path:'opensuite-home-web.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

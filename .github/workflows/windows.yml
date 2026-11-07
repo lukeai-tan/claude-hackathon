@@ -148,6 +148,93 @@ jobs:
           $tag = "build-$buildNumber"
           gh release create $tag release/*.exe release/SHA256SUMS.txt --target '${{ github.sha }}' --title "OpenSuite build $buildNumber — PDF update" --notes-file source-code/OpenPDF/RELEASE-NOTES.md --latest
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+  linux:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source-code/OpenSlides/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: source-code/OpenPDF/requirements.txt
+      - name: Install display, OCR and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb tesseract-ocr fakeroot
+          # Ubuntu 24.04 blocks the unprivileged user namespaces Electron's sandbox needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci --prefix source-code/OpenSlides
+      - run: npm run desktop:install --prefix source-code/OpenSlides
+      - name: Build and check OpenPDF
+        env:
+          OPENPDF_UI_CAPTURE: '1'
+        run: |
+          source-code/OpenPDF/build-linux.sh
+          python source-code/OpenPDF/benchmarks/editor.py
+      - name: Build standalone OpenSlides
+        run: npm run desktop:build --prefix source-code/OpenSlides
+      - name: Check standalone OpenSlides
+        working-directory: source-code/OpenSlides
+        timeout-minutes: 3
+        run: xvfb-run -a release/linux-unpacked/openslides --smoke-test
+      - name: Build combined OpenSuite
+        run: npm run build:desktop
+      - name: Check suite and both bundled editors
+        timeout-minutes: 5
+        run: |
+          status=0
+          xvfb-run -a release/linux-unpacked/opensuite --smoke-test || status=$?
+          cat opensuite-smoke.json || true
+          rm -f opensuite-smoke.json
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a release/OpenSuite-*.AppImage --smoke-test || status=$?
+          cat opensuite-smoke.json || true
+          exit $status
+      - name: Collect standalone apps and checksums
+        run: |
+          cp source-code/OpenPDF/dist/OpenPDF release/OpenPDF-linux-x86_64
+          cp source-code/OpenSlides/release/*.AppImage release/
+          (cd release && sha256sum *.AppImage *.deb OpenPDF-linux-x86_64 > SHA256SUMS-linux.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Linux-checks
+          path: |
+            source-code/OpenPDF/openpdf-*.png
+            source-code/OpenPDF/smoke-output.log
+            opensuite-*.png
+            opensuite-smoke.json
+            opensuite-pdf-check.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenSuite-Linux-x64
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/OpenPDF-linux-x86_64
+            release/SHA256SUMS-linux.txt
+  linux-release:
+    if: github.ref == 'refs/heads/master'
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenSuite-Linux-x64
+          path: release
+      - name: Attach Linux builds to this commit's release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/${{ github.repository }}/releases?per_page=100" --jq '[.[] | select(.target_commitish == "${{ github.sha }}")][0].tag_name')
+          if [ -z "$tag" ] || [ "$tag" = null ]; then echo 'No release for this commit'; exit 1; fi
+          gh release upload "$tag" release/* --repo "${{ github.repository }}" --clobber
   homepage:
     if: github.ref == 'refs/heads/master'
     needs: [verify, windows]

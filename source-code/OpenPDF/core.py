@@ -232,7 +232,9 @@ class PDF:
         else:
             executable = shutil.which('tesseract')
             if not executable:
-                raise ValueError('Tesseract is missing. Use the bundled Windows release or install Tesseract.')
+                hint = ('Use the bundled Windows release or install Tesseract.' if os.name == 'nt'
+                        else 'Install it with your package manager, e.g. sudo apt install tesseract-ocr.')
+                raise ValueError('Tesseract is missing. ' + hint)
         # A complete temporary result prevents partial changes if OCR fails.
         out = fitz.open()
         try:

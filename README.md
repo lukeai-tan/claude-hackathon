@@ -220,7 +220,7 @@ Every layer of OpenSuite is validated through automated test suites in continuou
 
 * **CI/CD & Packaging**:
 
-  * GitHub Actions pipelines execute automated unit test matrices and produce reproducible, automated Windows x64 binaries.
+  * GitHub Actions pipelines execute automated unit test matrices and produce reproducible, automated Windows x64 and Linux x64 binaries.
 
 Check live workflow runs: [GitHub Actions Workflows](https://github.com/lukeai-tan/claude-hackathon/actions)
 
@@ -238,7 +238,7 @@ The root repository includes the master [LICENSE](LICENSE) file, and all third-p
 
 ## 7. Download & Installation
 
-Binaries are compiled for **Windows x64**:
+Binaries are compiled for **Windows x64** and **Linux x64**:
 
 [Download the Latest OpenSuite Release](https://github.com/lukeai-tan/claude-hackathon/releases/latest)
 
@@ -246,7 +246,11 @@ Binaries are compiled for **Windows x64**:
 
 * **`OpenSuite-Portable-x64.exe`**: Standalone executable (runs immediately without installation or admin rights).
 
-*Note: Because these hackathon builds are self-signed, Windows Defender SmartScreen may display an initial unknown publisher notice.*
+* **`OpenSuite-<version>-x86_64.AppImage`**: Portable Linux build. Run `chmod +x OpenSuite-*.AppImage && ./OpenSuite-*.AppImage`. On Ubuntu 22.04+ install `libfuse2` (`libfuse2t64` on 24.04) first.
+
+* **`OpenSuite-<version>-amd64.deb`**: Debian/Ubuntu package. Install with `sudo apt install ./OpenSuite-*.deb`; it pulls in `tesseract-ocr` for OCR.
+
+*Note: Because these hackathon builds are self-signed, Windows Defender SmartScreen may display an initial unknown publisher notice. On Linux, the AppImage uses the distribution's `tesseract-ocr` for OCR.*
 
 ## 8. Build from Source
 
@@ -282,7 +286,22 @@ python source-code/OpenPDF/app.py
 
 ```
 
-### 3. Run Test Suites
+### 3. Build the Desktop Apps
+
+`npm run build:desktop` packages for the host OS: Windows installers on Windows, an AppImage and `.deb` on Linux. Build the bundled OpenPDF executable first.
+
+```
+# Windows
+powershell source-code/OpenPDF/build-windows.ps1
+
+# Linux (Debian/Ubuntu: sudo apt install python3-tk xvfb tesseract-ocr)
+source-code/OpenPDF/build-linux.sh
+
+npm run desktop:install --prefix source-code/OpenSlides
+npm run build:desktop          # output in release/
+```
+
+### 4. Run Test Suites
 
 ```
 npm test
@@ -293,7 +312,7 @@ npm test
 
 ```
 claude-hackathon/
-├── .github/workflows/          # Automated CI/CD test and Windows build matrix
+├── .github/workflows/          # Automated CI/CD test, Windows and Linux builds
 ├── source-code/
 │   ├── main/
 │   │   ├── web/                # OpenSuite project website
