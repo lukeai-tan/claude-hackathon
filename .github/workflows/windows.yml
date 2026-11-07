@@ -3,6 +3,12 @@ on:
   push:
     branches: [master, pdf-build-12]
   pull_request:
+    # Docs/metadata-only PRs don't need the full installer build + smoke run.
+    paths-ignore:
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE'
   workflow_dispatch:
 permissions:
   contents: write
