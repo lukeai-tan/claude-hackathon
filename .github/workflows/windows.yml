@@ -73,6 +73,16 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: source-code/OpenPDF/requirements.txt
+      # electron-builder downloads the Electron runtime + packaging binaries from
+      # GitHub's release CDN; caching them survives transient 504s and speeds builds.
+      - name: Cache Electron and builder binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('source-code/main/desktop/builder.cjs', 'source-code/OpenSlides/desktop/builder.cjs') }}
+          restore-keys: electron-${{ runner.os }}-
       - run: npm ci --prefix source-code/OpenSlides
       - run: npm run desktop:install --prefix source-code/OpenSlides
       - run: python -m pip install -r source-code/OpenPDF/requirements.txt
@@ -170,6 +180,16 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: source-code/OpenPDF/requirements.txt
+      # electron-builder downloads the Electron runtime + fpm from GitHub's release
+      # CDN; caching them survives transient 504s and speeds builds.
+      - name: Cache Electron and builder binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('source-code/main/desktop/builder.cjs', 'source-code/OpenSlides/desktop/builder.cjs') }}
+          restore-keys: electron-${{ runner.os }}-
       - name: Install display, OCR and packaging tools
         run: |
           sudo apt-get update
