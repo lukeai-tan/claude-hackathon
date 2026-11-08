@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // BASE_PATH lets the same build serve from a GitHub Pages project path
-// (e.g. /claude-hackathon/) or from the root of any static host.
+// (e.g. /open-suite/) or from the root of any static host.
 const desktop = process.env.DECKFORGE_DESKTOP === '1';
 const base = desktop ? './' : process.env.BASE_PATH ?? '/';
 

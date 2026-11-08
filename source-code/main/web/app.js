@@ -1,10 +1,11 @@
 'use strict';
-const releaseBase='https://github.com/RishabhShenoy03/claude-hackathon/releases/latest/download/';
-const downloads={suite:'OpenSuite-Setup-0.3.0-x64.exe',portable:'OpenSuite-Portable-0.3.0-x64.exe',pdf:'OpenPDF.exe',slides:'OpenSlides-Portable-0.3.0-x64.exe',linux:'OpenSuite-0.3.0-x86_64.AppImage'};
+// Point every download button at the latest GitHub release page so the links
+// never go stale when the version bumps — visitors pick the asset they need.
+const latestRelease='https://github.com/lukeai-tan/open-suite/releases/latest';
 const bridge=window.openSuite;
 let noticeTimer;
 function notify(message){const n=document.querySelector('#notice');n.textContent=message;n.hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>{n.hidden=true;},6500);}
-for(const link of document.querySelectorAll('[data-download]'))link.href=releaseBase+downloads[link.dataset.download];
+for(const link of document.querySelectorAll('[data-download]'))link.href=latestRelease;
 if(bridge){
  document.body.classList.add('desktop');
  for(const link of document.querySelectorAll('[data-app]')){

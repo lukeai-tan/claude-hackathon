@@ -7,8 +7,9 @@ test('only bundled app identifiers can launch',()=>{
  for(const id of ['cmd.exe','../OpenPDF',null,{},'openslides --inspect'])assert.throws(()=>validateApp(id));
 });
 test('external links are restricted to the suite repository',()=>{
- assert.equal(allowedExternal('https://github.com/RishabhShenoy03/claude-hackathon/releases/latest/download/OpenPDF.exe'),true);
- for(const url of ['file:///C:/Windows/cmd.exe','https://github.com.evil.test/RishabhShenoy03/claude-hackathon','https://github.com/RishabhShenoy03/claude-hackathon-evil','https://user@github.com/RishabhShenoy03/claude-hackathon','https://github.com/other/repo'])assert.equal(allowedExternal(url),false);
+ assert.equal(allowedExternal('https://github.com/lukeai-tan/open-suite/releases/latest'),true);
+ assert.equal(allowedExternal('https://github.com/lukeai-tan/open-suite/releases/latest/download/OpenPDF.exe'),true);
+ for(const url of ['file:///C:/Windows/cmd.exe','https://github.com.evil.test/lukeai-tan/open-suite','https://github.com/lukeai-tan/open-suite-evil','https://user@github.com/lukeai-tan/open-suite','https://github.com/other/repo'])assert.equal(allowedExternal(url),false);
 });
 test('protocol serves local assets without path traversal',()=>{
  const root=path.resolve('fixture');
