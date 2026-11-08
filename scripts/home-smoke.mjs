@@ -7,9 +7,9 @@ try{
  await page.goto('http://127.0.0.1:4173');
  await assert.equal(await page.title(),'OpenSuite');
  assert.equal(await page.locator('[data-app]').count(),2);
- assert.match(await page.locator('[data-app="openpdf"]').getAttribute('href'),/OpenPDF.exe$/);
+ assert.match(await page.locator('[data-app="openpdf"]').getAttribute('href'),/github\.com\/lukeai-tan\/open-suite\/releases\/latest$/);
  assert.equal(await page.locator('[data-app="openslides"]').getAttribute('href'),'./OpenSlides/');
- assert.match(await page.locator('[data-download="linux"]').getAttribute('href'),/OpenSuite-[\d.]+-x86_64\.AppImage$/);
+ assert.match(await page.locator('[data-download="linux"]').getAttribute('href'),/github\.com\/lukeai-tan\/open-suite\/releases\/latest$/);
  await page.screenshot({path:'opensuite-home-web.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
