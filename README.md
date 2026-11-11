@@ -8,7 +8,7 @@ Create, edit, manipulate, and export documents and presentation decks without re
 
 **Two standalone editors. One integrated desktop workspace. Zero recurring software fees.**
 
-[Download OpenSuite](https://github.com/lukeai-tan/claude-hackathon/releases/latest) | [Explore the Source Code](https://github.com/lukeai-tan/claude-hackathon)
+[Download OpenSuite](https://github.com/lukeai-tan/open-suite/releases/latest) | [Explore the Source Code](https://github.com/lukeai-tan/open-suite)
 | [Demo video link](https://drive.google.com/file/d/1WD3OdeDiE1uflUg-6Z3fHd2iXdkqJevX/view?usp=sharing)
 
 ## 1. The Problem: Professional Document & Design Tools Are Gated Behind Subscriptions
@@ -222,7 +222,7 @@ Every layer of OpenSuite is validated through automated test suites in continuou
 
   * GitHub Actions pipelines execute automated unit test matrices and produce reproducible, automated Windows x64 and Linux x64 binaries.
 
-Check live workflow runs: [GitHub Actions Workflows](https://github.com/lukeai-tan/claude-hackathon/actions)
+Check live workflow runs: [GitHub Actions Workflows](https://github.com/lukeai-tan/open-suite/actions)
 
 ## 6. Open-Source Licensing — 15% of Judging Rubric
 
@@ -240,7 +240,7 @@ The root repository includes the master [LICENSE](LICENSE) file, and all third-p
 
 Binaries are compiled for **Windows x64** and **Linux x64**:
 
-[Download the Latest OpenSuite Release](https://github.com/lukeai-tan/claude-hackathon/releases/latest)
+[Download the Latest OpenSuite Release](https://github.com/lukeai-tan/open-suite/releases/latest)
 
 * **`OpenSuite-Setup-x64.exe`**: Standard Windows desktop installer.
 
@@ -266,8 +266,8 @@ Binaries are compiled for **Windows x64** and **Linux x64**:
 
 ```
 # Clone the repository
-git clone https://github.com/lukeai-tan/claude-hackathon.git
-cd claude-hackathon
+git clone https://github.com/lukeai-tan/open-suite.git
+cd open-suite
 
 # Install and launch OpenSlides
 npm ci --prefix source-code/OpenSlides
@@ -311,7 +311,7 @@ npm test
 ## 9. Repository Structure
 
 ```
-claude-hackathon/
+open-suite/
 ├── .github/workflows/          # Automated CI/CD test, Windows and Linux builds
 ├── source-code/
 │   ├── main/

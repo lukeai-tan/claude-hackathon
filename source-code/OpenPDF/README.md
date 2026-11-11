@@ -5,9 +5,9 @@ No subscription, account, document upload, or runtime AI API is required.
 
 ## Download
 
-Download `OpenPDF.exe` from [Releases](https://github.com/RishabhShenoy03/claude-hackathon/releases/latest).
+Download `OpenPDF.exe` from [Releases](https://github.com/lukeai-tan/open-suite/releases/latest).
 Windows builds run on pushes to master. The executable is also uploaded under
-the completed [OpenSuite build and release workflow](https://github.com/RishabhShenoy03/claude-hackathon/actions/workflows/windows.yml).
+the completed [OpenSuite build and release workflow](https://github.com/lukeai-tan/open-suite/actions/workflows/windows.yml).
 The executable is unsigned. Windows may show a publisher warning.
 
 **Validation:** Engine tests cover PDF operations, styled boxes, save/reopen,
@@ -19,7 +19,7 @@ Results are recorded in Actions; this is not an exhaustive visual compatibility 
 
 ### Direct editing and navigation
 
-Build 12 keeps the OpenSuite workspace and ports the build 11 PDF fixes:
+OpenPDF provides direct PDF editing and navigation inside the OpenSuite workspace:
 
 - Horizontal trackpad/Shift-wheel panning and proportional vertical scrolling using Windows preferences.
 - Highlight text continuously or choose a translucent freehand highlighter from the Highlight menu. Escape exits; Undo/Redo works for each mark.
