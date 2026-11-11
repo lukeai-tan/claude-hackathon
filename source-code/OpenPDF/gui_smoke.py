@@ -116,7 +116,7 @@ def exercise_app(app):
     app.update()
     assert app.context_frame is not None, 'Selection did not show contextual actions'
     labels = [w.cget('text') for w in app.context_frame.winfo_children()]
-    assert all(s in labels for s in ('Edit section', 'Highlight', 'Redact', 'Copy'))
+    assert all(s in labels for s in ('Edit section', 'Highlight', 'Markup ▾', 'Redact', 'Copy'))
     from tkinter import messagebox
     with patch.object(messagebox, 'askyesno', return_value=True):
         app.redact()

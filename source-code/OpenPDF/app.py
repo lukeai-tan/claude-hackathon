@@ -477,7 +477,15 @@ class App(tk.Tk):
             if len(candidates) != 1:
                 raise ValueError('Select text within a single section to edit it, or use Edit text boxes.')
             self.begin_inline(candidates[0])
-        for title, action in [('Edit section', edit), ('Highlight', self.highlight), ('Redact', self.redact), ('Copy', copy), ('Cancel', self.clear_selection)]:
+        def markup_menu():
+            menu = tk.Menu(self, tearoff=False)
+            for label, kind in [('Strikethrough', 'strikeout'), ('Underline', 'underline'), ('Squiggly', 'squiggly')]:
+                menu.add_command(label=label, command=lambda k=kind: self.guard(lambda: self.markup_selected(k)))
+            try:
+                menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+            finally:
+                menu.grab_release()
+        for title, action in [('Edit section', edit), ('Highlight', self.highlight), ('Markup ▾', markup_menu), ('Redact', self.redact), ('Copy', copy), ('Cancel', self.clear_selection)]:
             ttk.Button(self.context_frame, text=title, command=lambda a=action: self.guard(a)).pack(side='left')
         r = self.text_quads[-1].rect * self.pdf.doc[self.index].rotation_matrix
         self.canvas.create_window(max(self.canvas.canvasx(0), r.x0 * self.zoom + 20), r.y1 * self.zoom + 26,
