@@ -906,27 +906,58 @@ class App(tk.Tk):
         ttk.Button(buttons, text='Close', command=window.destroy).pack(side='right')
         reload()
 
-    def field(self, checkbox):
+    def field(self, kind):
         rect = self.rect()
         name = sd.askstring('Form field', 'Unique field name:', parent=self)
-        if name:
-            self.change(lambda: self.pdf.add_field(self.index, rect, name, checkbox))
+        if not name:
+            return
+        choices = None
+        if kind in ('dropdown', 'listbox'):
+            raw = sd.askstring('Options', 'Options, comma-separated (e.g. Yes, No, Maybe):', parent=self)
+            if raw is None:
+                return
+            choices = [c.strip() for c in raw.split(',') if c.strip()]
+            if not choices:
+                raise ValueError('Enter at least one option.')
+        self.change(lambda: self.pdf.add_field(self.index, rect, name, kind, choices))
 
     def fill(self):
         self.require()
         fields = self.pdf.fields()
         if not fields:
-            raise ValueError('No interactive fields. Add a text field or checkbox first.')
+            raise ValueError('No interactive fields. Add a field first.')
         values = []
-        for index, name, value, kind in fields:
-            if kind not in (fitz.PDF_WIDGET_TYPE_TEXT, fitz.PDF_WIDGET_TYPE_CHECKBOX):
-                continue
-            new = sd.askstring('Fill form', f'Page {index + 1}: {name}' + (' (yes/no)' if kind == fitz.PDF_WIDGET_TYPE_CHECKBOX else ''),
-                               initialvalue=str(value or ''), parent=self)
+        for index, name, value, kind, choices in fields:
+            if kind == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                continue  # signature fields are signed, not typed into
+            prompt = f'Page {index + 1}: {name}'
+            if kind == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+                prompt += ' (yes/no)'
+            elif choices:
+                prompt += ' (' + ', '.join(choices) + ')'
+            new = sd.askstring('Fill form', prompt, initialvalue=str(value or ''), parent=self)
             if new is None:
                 return
             values.append((index, name, new))
         self.change(lambda: [self.pdf.fill_field(*v) for v in values])
+
+    def export_form(self):
+        self.require()
+        if not self.pdf.fields():
+            raise ValueError('No interactive fields to export.')
+        path = fd.asksaveasfilename(defaultextension='.xfdf', filetypes=[('XFDF form data', '*.xfdf')])
+        if path:
+            count = self.pdf.export_form_data(path)
+            self.status.set(f'Exported {count} field value(s) to XFDF.')
+
+    def import_form(self):
+        self.require()
+        path = fd.askopenfilename(filetypes=[('Form data', '*.xfdf *.fdf *.xml')])
+        if not path:
+            return
+        result = {}
+        self.change(lambda: result.update(count=self.pdf.import_form_data(path)), 'Form data imported.')
+        self.status.set(f'Imported {result["count"]} field value(s).')
 
     def redact(self):
         self.require()

@@ -57,13 +57,13 @@ class PDFTests(unittest.TestCase):
 
     def test_forms_persist(self):
         self.pdf.add_field(0, fitz.Rect(50, 100, 250, 130), 'Name')
-        self.pdf.add_field(0, fitz.Rect(50, 150, 70, 170), 'Consent', True)
+        self.pdf.add_field(0, fitz.Rect(50, 150, 70, 170), 'Consent', 'checkbox')
         self.pdf.fill_field(0, 'Name', 'Rishabh')
         self.pdf.fill_field(0, 'Consent', 'yes')
         output = self.root / 'form.pdf'
         self.pdf.save(output)
         other = PDF(output)
-        fields = {name: value for _, name, value, _ in other.fields()}
+        fields = {name: value for _, name, value, *_ in other.fields()}
         self.assertEqual(fields['Name'], 'Rishabh')
         self.assertNotEqual(fields['Consent'], 'Off')
         other.close()
