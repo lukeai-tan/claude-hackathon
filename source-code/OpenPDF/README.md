@@ -110,7 +110,10 @@ page layout with pdf2docx. It is no longer the plain-text export used in build 1
 Scanned documents need OCR first. Highly designed pages, unusual fonts and
 complex vector graphics may still differ from the PDF; review the result in Word.
 Ctrl+O opens, Ctrl+S exports, Ctrl+Z undoes and Ctrl+Y redoes changes (up to 8 undo snapshots).
-Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
+Normal export is unencrypted. Password export opens a dialog for an AES-256
+open password plus per-permission checkboxes (printing, copying, editing,
+commenting, form-filling). Restrictions bind to a separate owner password; if
+you leave it blank one is generated so the restrictions cannot be lifted.
 
 ## Feature progress
 
@@ -127,7 +130,7 @@ Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 | Create/fill forms | Interactive text fields and checkboxes; no XFA support |
 | Redaction | Removes intersecting text, image pixels, and graphics; cleaned full export required |
 | Metadata/attachment cleanup | Implemented; not a comprehensive hidden-content audit |
-| Password protection | AES-256 opening password; normal export removes encryption |
+| Password protection & permissions | AES-256 opening password; per-document permissions (printing, copying, editing, commenting, form-filling) enforced through a separate owner password; normal export removes encryption. PDF permissions are advisory and honoured by the reader, not unbreakable |
 | OCR | English Tesseract bundled in Windows build; selected pages rasterized with searchable text; those pages lose forms/links |
 | PDF to Word | Editable layout reconstruction including styles, tables and images; complex layout fidelity varies |
 | PDF to text/PNG | Implemented |

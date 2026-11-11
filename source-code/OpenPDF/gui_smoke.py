@@ -408,6 +408,42 @@ def exercise_app(app):
     app.selection_mode.set('text')
     print('Comment & markup toolkit: text markup, shapes, callout, stamp, comment list and round-trip passed.')
 
+    # Password export dialog applies the chosen permission restrictions.
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    app.pdf.doc[0].insert_text((60, 100), 'Protected export', fontsize=14)
+    app.refresh()
+    app.update()
+    with tempfile.TemporaryDirectory() as folder:
+        out = str(Path(folder) / 'protected.pdf')
+        original_output = app.output
+        app.output = lambda ext: out
+        try:
+            app.encrypt()
+            app.update()
+            dialog = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+            entries = [w for w in descendants(dialog) if w.winfo_class() == 'TEntry']
+            entries[0].insert(0, 'openpw')  # open password
+            entries[1].insert(0, 'openpw')  # confirm
+            checks = [w for w in descendants(dialog) if w.winfo_class() == 'TCheckbutton']
+            assert len(checks) == len(app.pdf.PERMISSIONS), 'Permission checkboxes missing'
+            checks[0].invoke()  # deny printing (first group)
+            next(w for w in descendants(dialog)
+                 if w.winfo_class() == 'TButton' and w.cget('text') == 'Export').invoke()
+            app.update()
+        finally:
+            app.output = original_output
+        saved = fitz.open(out)
+        assert saved.needs_pass == 1, 'Export was not password protected'
+        assert saved.authenticate('openpw'), 'Open password did not authenticate'
+        assert not (saved.permissions & fitz.PDF_PERM_PRINT), 'Printing restriction was not applied'
+        assert saved.permissions & fitz.PDF_PERM_COPY, 'Copying should remain allowed'
+        saved.close()
+    print('Password export with permission restrictions passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui

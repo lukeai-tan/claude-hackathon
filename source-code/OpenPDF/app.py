@@ -1,6 +1,7 @@
 """OpenPDF Studio: local desktop PDF workstation."""
 import io
 import queue
+import secrets
 import sys
 import os
 import traceback
@@ -950,16 +951,51 @@ class App(tk.Tk):
 
     def encrypt(self):
         self.require()
-        password = sd.askstring('Encrypt export', 'Password required to open the exported PDF:', show='*', parent=self)
-        if not password:
-            return
-        confirm = sd.askstring('Confirm password', 'Enter password again:', show='*', parent=self)
-        if password != confirm:
-            raise ValueError('Passwords do not match.')
-        path = self.output('.pdf')
-        if path:
-            self.pdf.save(path, password)
-            self.status.set('Saved AES-256 encrypted copy.')
+        window = tk.Toplevel(self)
+        window.title('Password & permissions export')
+        window.transient(self)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        pw, confirm, owner = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        ttk.Label(frame, text='Open password (required to open the PDF):').pack(anchor='w')
+        ttk.Entry(frame, textvariable=pw, show='*', width=36).pack(anchor='w', pady=(2, 8))
+        ttk.Label(frame, text='Confirm open password:').pack(anchor='w')
+        ttk.Entry(frame, textvariable=confirm, show='*', width=36).pack(anchor='w', pady=(2, 8))
+        ttk.Separator(frame).pack(fill='x', pady=8)
+        ttk.Label(frame, text='Allow for anyone who opens with that password:').pack(anchor='w', pady=(0, 4))
+        allow = {}
+        for key, label, _flags in self.pdf.PERMISSIONS:
+            allow[key] = tk.BooleanVar(value=True)
+            ttk.Checkbutton(frame, text=label, variable=allow[key]).pack(anchor='w')
+        ttk.Separator(frame).pack(fill='x', pady=8)
+        ttk.Label(frame, text='Permissions password (optional): lets you change these\n'
+                             'restrictions later. Leave blank to lock them.',
+                  style='Muted.TLabel', justify='left').pack(anchor='w')
+        ttk.Entry(frame, textvariable=owner, show='*', width=36).pack(anchor='w', pady=(2, 8))
+        def export():
+            if not pw.get():
+                raise ValueError('Enter an open password.')
+            if pw.get() != confirm.get():
+                raise ValueError('Passwords do not match.')
+            allowed = [key for key, var in allow.items() if var.get()]
+            restricted = len(allowed) < len(self.pdf.PERMISSIONS)
+            owner_pw = owner.get()
+            # Restrictions only bind when the owner password differs from the open
+            # password; generate a random one when the user did not set their own.
+            if restricted and not owner_pw:
+                owner_pw = secrets.token_urlsafe(18)
+            window.destroy()
+            path = self.output('.pdf')
+            if path:
+                self.pdf.save(path, pw.get(), owner_password=owner_pw,
+                              permissions=self.pdf.permission_mask(allowed))
+                self.status.set('Saved AES-256 encrypted copy'
+                                + (' with restricted permissions.' if restricted else '.'))
+        buttons = ttk.Frame(frame)
+        buttons.pack(anchor='e', pady=(8, 0))
+        ttk.Button(buttons, text='Cancel', command=window.destroy).pack(side='right', padx=(6, 0))
+        ttk.Button(buttons, text='Export', command=lambda: self.guard(export)).pack(side='right')
+        window.grab_set()
 
     def metadata(self):
         self.require()
