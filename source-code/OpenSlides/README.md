@@ -2,7 +2,7 @@
 
 An open-source slide deck editor that combines Canva-style design speed with PowerPoint-grade control. It runs in the browser, works offline, and exports real, editable `.pptx` files. Free, no account, MIT licensed.
 
-**Live app:** https://rishabhshenoy03.github.io/claude-hackathon/OpenSlides/ (after GitHub Pages is enabled, see [Deploy](#deploy))
+**Live app:** https://lukeai-tan.github.io/open-suite/OpenSlides/ (after GitHub Pages is enabled, see [Deploy](#deploy))
 
 Built for Autonomous SG 2026, NUS Hackers track ("reverse engineer something expensive and make it cheap and open").
 
@@ -10,7 +10,7 @@ Built for Autonomous SG 2026, NUS Hackers track ("reverse engineer something exp
 
 OpenSlides is the slide design app in our suite. **Claudia** is its AI assistant: choose **Ask Claudia** to design with her. Existing Deckforge decks and saved desktop data remain compatible. New deck exports use `.openslides.json`.
 
-See [Releases](https://github.com/RishabhShenoy03/claude-hackathon/releases) for the installer and portable `.exe`, or build on Windows:
+See [Releases](https://github.com/lukeai-tan/open-suite/releases) for the installer and portable `.exe`, or build on Windows:
 
 ```sh
 npm ci

@@ -2,7 +2,7 @@
 
 OpenPDF Studio uses PyMuPDF / MuPDF under their AGPL terms. The application
 is distributed under AGPL-3.0-or-later. Corresponding source is published at
-https://github.com/RishabhShenoy03/claude-hackathon with each release linked to its commit.
+https://github.com/lukeai-tan/open-suite with each release linked to its commit.
 
 Other components include Python/Tk, Pillow, python-docx, PyInstaller,
 and the Tesseract OCR distribution. Their respective notices and licenses
