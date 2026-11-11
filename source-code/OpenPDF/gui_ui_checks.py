@@ -88,7 +88,7 @@ def exercise_ui(app):
     app.fit_page()
     app.update()
     assert app.document_label.get(), 'Document title missing'
-    assert len(app.rail_buttons) == 8, 'Missing tool categories'
+    assert len(app.rail_buttons) == 9, 'Missing tool categories'
     if os.environ.get('OPENPDF_UI_CAPTURE') == '1':
         from PIL import ImageGrab
         ImageGrab.grab(bbox=(app.winfo_rootx(), app.winfo_rooty(), app.winfo_rootx()+app.winfo_width(), app.winfo_rooty()+app.winfo_height())).save('openpdf-workspace.png')
