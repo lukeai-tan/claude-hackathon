@@ -74,6 +74,8 @@ class App(tk.Tk):
         self.highlight_width = 12
         self.highlight_menu = None
         self.selection_mode = tk.StringVar(value='text')
+        self.markup_kind = 'strikeout'
+        self.author = 'OpenPDF'
         self.busy = False
         self.results = queue.Queue()
         self.status = tk.StringVar(value='Open a PDF to begin. Files stay on your computer.')
@@ -382,7 +384,7 @@ class App(tk.Tk):
         x, y = self.origin
         x2, y2 = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         self.canvas.delete('selection')
-        if self.selection_mode.get() in ('text', 'highlight') and self.pdf:
+        if self.selection_mode.get() in ('text', 'highlight', 'markup') and self.pdf:
             page = self.pdf.doc[self.index]
             start = fitz.Point((x - 20) / self.zoom, (y - 20) / self.zoom) * page.derotation_matrix
             end = fitz.Point((x2 - 20) / self.zoom, (y2 - 20) / self.zoom) * page.derotation_matrix
@@ -442,6 +444,10 @@ class App(tk.Tk):
         if self.selection_mode.get() == 'highlight':
             if not self.busy and self.pdf and self.text_quads:
                 self.guard(self.highlight)
+            return
+        if self.selection_mode.get() == 'markup':
+            if not self.busy and self.pdf and self.text_quads:
+                self.guard(self.apply_markup)
             return
         if self.selection_mode.get() == 'addbox' and self.pdf and not self.inline and not self.busy:
             def create():
@@ -570,7 +576,7 @@ class App(tk.Tk):
         if self.ink_points:
             self.cancel_stroke()
             self.status.set('Unfinished stroke cancelled. Drawing mode remains active.')
-        elif self.selection_mode.get() in ('pen', 'freehighlight', 'highlight', 'addbox', 'edit'):
+        elif self.selection_mode.get() in ('pen', 'freehighlight', 'highlight', 'markup', 'addbox', 'edit'):
             self.stop_pen()
         return 'break'
 
@@ -783,6 +789,113 @@ class App(tk.Tk):
             if not url.startswith(('https://', 'http://')):
                 raise ValueError('Use an http:// or https:// URL.')
             self.change(lambda: self.pdf.doc[self.index].insert_link({'kind': fitz.LINK_URI, 'from': rect, 'uri': url}))
+
+    def markup_mode(self, kind):
+        self.require()
+        self.markup_kind = kind
+        if self.text_quads:  # apply straight away when text is already selected, like Highlight
+            self.apply_markup()
+            return
+        self.clear_selection()
+        self.selection_mode.set('markup')
+        self.render()
+        verbs = {'strikeout': 'strike through', 'underline': 'underline', 'squiggly': 'squiggly-underline'}
+        self.status.set(f'Drag across text to {verbs[kind]} it. Escape exits; Undo removes a mark.')
+
+    def apply_markup(self):
+        quads = list(self.text_quads)
+        kind = self.markup_kind
+        self.change(lambda: self.pdf.markup(self.index, quads, kind, self.author),
+                    f'{kind.capitalize()} applied to the selected text.', dirty_pages={self.index})
+
+    def markup_selected(self, kind):
+        self.require()
+        if not self.text_quads:
+            raise ValueError('Select text first (drag across words in Text mode), then mark it.')
+        self.markup_kind = kind
+        self.apply_markup()
+
+    def annotate_shape(self, kind):
+        rect = self.rect()
+        self.change(lambda: self.pdf.shape(self.index, kind, rect, author=self.author),
+                    f'{kind.capitalize()} added. Undo removes it.', dirty_pages={self.index})
+
+    def callout(self):
+        rect = self.rect()
+        text = sd.askstring('Text box', 'Text to show on the page:', parent=self)
+        if text:
+            self.change(lambda: self.pdf.callout(self.index, rect, text, self.author),
+                        'Text box added. Undo removes it.', dirty_pages={self.index})
+
+    def stamp(self):
+        rect = self.rect()
+        choice = tk.StringVar(value=self.pdf.STAMPS[0])
+        window = tk.Toplevel(self)
+        window.title('Place stamp')
+        window.transient(self)
+        ttk.Label(window, text='Choose a stamp; it is placed in the selected area:').pack(padx=14, pady=(14, 6))
+        ttk.Combobox(window, textvariable=choice, values=list(self.pdf.STAMPS), state='readonly', width=24).pack(padx=14, pady=6)
+        def apply():
+            label = choice.get()
+            stamp_id = self.pdf.STAMPS.index(label)
+            window.destroy()
+            self.guard(lambda: self.change(lambda: self.pdf.stamp(self.index, rect, stamp_id, self.author),
+                                           f'{label} stamp added. Undo removes it.', dirty_pages={self.index}))
+        ttk.Button(window, text='Place stamp', command=apply).pack(pady=(6, 14))
+        window.grab_set()
+
+    def reveal_rect(self, page_index, rect):
+        self.index = page_index
+        self.pages.select(self.index)
+        self.render()
+        r = fitz.Rect(rect) * self.pdf.doc[self.index].rotation_matrix
+        coords = [r.x0 * self.zoom + 20, r.y0 * self.zoom + 20, r.x1 * self.zoom + 20, r.y1 * self.zoom + 20]
+        self.canvas.create_rectangle(*coords, outline='#f97316', width=3, tags='selection')
+        bounds = self.canvas.bbox('all')
+        self.canvas.yview_moveto(max(0, (coords[1] - self.canvas.winfo_height() / 3) / max(1, bounds[3])))
+        self.canvas.xview_moveto(max(0, (coords[0] - self.canvas.winfo_width() / 3) / max(1, bounds[2])))
+
+    def comment_list(self):
+        self.require()
+        window = tk.Toplevel(self)
+        window.title('Comments & annotations')
+        window.transient(self)
+        window.geometry('580x380')
+        tree = ttk.Treeview(window, columns=('page', 'kind', 'author', 'text'), show='headings', height=12)
+        for col, head, width in [('page', 'Page', 48), ('kind', 'Type', 90), ('author', 'Author', 90), ('text', 'Text', 320)]:
+            tree.heading(col, text=head)
+            tree.column(col, width=width, anchor='w')
+        tree.pack(side='top', fill='both', expand=True, padx=10, pady=10)
+        rows = {}
+        def reload():
+            tree.delete(*tree.get_children())
+            rows.clear()
+            for item in self.pdf.annotations():
+                text = item['text']
+                row = tree.insert('', 'end', values=(item['page'] + 1, item['kind'], item['author'],
+                                                      (text[:60] + '…') if len(text) > 60 else text))
+                rows[row] = item
+            empty.set('' if rows else 'No annotations yet. Add highlights, notes, shapes or stamps first.')
+        def goto(event=None):
+            item = rows.get(tree.focus())
+            if item:
+                self.clear_selection()
+                self.reveal_rect(item['page'], item['rect'])
+        def delete():
+            item = rows.get(tree.focus())
+            if item:
+                self.guard(lambda: self.change(lambda: self.pdf.delete_annotation(item['page'], item['xref']),
+                                               'Annotation deleted.', dirty_pages={item['page']}))
+                reload()
+        tree.bind('<Double-Button-1>', goto)
+        empty = tk.StringVar()
+        ttk.Label(window, textvariable=empty, style='Muted.TLabel').pack(side='top', anchor='w', padx=12)
+        buttons = ttk.Frame(window)
+        buttons.pack(side='bottom', fill='x', padx=10, pady=(0, 10))
+        ttk.Button(buttons, text='Go to', command=goto).pack(side='left')
+        ttk.Button(buttons, text='Delete', command=delete).pack(side='left', padx=6)
+        ttk.Button(buttons, text='Close', command=window.destroy).pack(side='right')
+        reload()
 
     def field(self, checkbox):
         rect = self.rect()

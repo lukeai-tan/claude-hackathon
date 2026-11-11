@@ -123,6 +123,9 @@ def build_workspace(app):
     app.canvas.bind('<Configure>', lambda _: draw_welcome(app) if not app.pdf else None)
     menu = tk.Menu(app, tearoff=False)
     menu.add_command(label='Highlight selected text', command=lambda: app.guard(app.highlight))
+    menu.add_command(label='Strikethrough selected text', command=lambda: app.guard(lambda: app.markup_selected('strikeout')))
+    menu.add_command(label='Underline selected text', command=lambda: app.guard(lambda: app.markup_selected('underline')))
+    menu.add_command(label='Squiggly selected text', command=lambda: app.guard(lambda: app.markup_selected('squiggly')))
     app.canvas.bind('<Button-3>', lambda e: menu.tk_popup(e.x_root, e.y_root))
     ttk.Separator(app).pack(fill='x')
     footer = ttk.Frame(app, padding=(14, 8))
@@ -134,6 +137,7 @@ def build_workspace(app):
     groups = {
         'File': ('▤', 'A fresh start for every document.', [('Open PDF', app.open), ('New blank', app.new), ('Save as', app.save), ('Images to PDF', app.from_images), ('Office to PDF', app.from_office), ('Batch compress', app.batch)]),
         'Edit': ('T', 'Make every page yours.', [('Edit text boxes', app.edit_mode), ('Add text', app.text), ('Replace text', app.replace), ('Add image', app.image), ('Draw signature', app.signature), ('Highlight', app.highlight), ('Comment', app.comment), ('Add link', app.link)]),
+        'Annotate': ('✦', 'Review, mark up and stamp.', [('Strikethrough text', lambda: app.markup_mode('strikeout')), ('Underline text', lambda: app.markup_mode('underline')), ('Squiggly text', lambda: app.markup_mode('squiggly')), ('Sticky note', app.comment), ('Text box', app.callout), ('Line', lambda: app.annotate_shape('line')), ('Arrow', lambda: app.annotate_shape('arrow')), ('Rectangle', lambda: app.annotate_shape('rectangle')), ('Oval', lambda: app.annotate_shape('oval')), ('Stamp', app.stamp), ('Comment list', app.comment_list)]),
         'Pages': ('▥', 'Put your story in order.', [('Merge', app.merge), ('Extract / reorder', app.select), ('Split all', app.split), ('Rotate', app.rotate), ('Delete page', app.delete), ('Blank page', app.blank), ('Crop selection', app.crop), ('Bookmark', app.bookmark)]),
         'Draw': ('✎', 'A personal touch, on the page.', [('Pen', app.pen_mode), ('Ink colour', app.pen_color), ('Done drawing', app.stop_pen)]),
         'Forms': ('☑', 'Turn documents into conversations.', [('Text field', lambda: app.field(False)), ('Checkbox', lambda: app.field(True)), ('Fill fields', app.fill)]),
@@ -183,7 +187,7 @@ def build_workspace(app):
             ttk.Label(content, text='Thickness (pt)', style='Muted.TLabel').pack(anchor='w', pady=(18, 6))
             ttk.Spinbox(content, textvariable=app.ink_width, from_=.5, to=20, increment=.5, width=8).pack(anchor='w')
             ttk.Label(content, textvariable=app.ink_color_label, style='Muted.TLabel').pack(anchor='w', pady=12)
-        hints={'Edit':'Choose Text to select words, or Area to place images and signatures.', 'Protect':'Redaction removes content from the exported PDF. Keep an original copy.', 'Convert':'OCR is included in the Windows download. Office import needs LibreOffice.', 'Pages':'Drag the page previews to reorder. Ctrl+Z undoes an edit.'}
+        hints={'Edit':'Choose Text to select words, or Area to place images and signatures.', 'Annotate':'Text markup (strikethrough/underline/squiggly) needs selected text; notes, shapes and stamps use Select area.', 'Protect':'Redaction removes content from the exported PDF. Keep an original copy.', 'Convert':'OCR is included in the Windows download. Office import needs LibreOffice.', 'Pages':'Drag the page previews to reorder. Ctrl+Z undoes an edit.'}
         ttk.Label(content, text=hints.get(name, 'Your files stay on this computer. No account required.'), style='Muted.TLabel', wraplength=184).pack(side='bottom', anchor='w', pady=(20, 0))
         panel_scroll = CanvasScroll(scroll)
         def wheel(event):
