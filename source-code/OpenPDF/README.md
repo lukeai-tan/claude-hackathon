@@ -70,6 +70,13 @@ OpenPDF provides direct PDF editing and navigation inside the OpenSuite workspac
 - **Undo / Redo:** always visible in the header; Ctrl+Z / Ctrl+Y also work.
 - The left sidebar displays clickable page thumbnails, rendered in idle batches.
 - Redact works on dragged text selections as well as selected page areas.
+- **Annotate** menu: mark up selected text with **strikethrough, underline or
+  squiggly** (also on right-click), add **sticky notes** and **text-box callouts**,
+  draw **line / arrow / rectangle / oval** shapes, and place Adobe-style **rubber
+  stamps** (Approved, Confidential, Draft, …). Text markup needs selected text;
+  notes, shapes and stamps use **Select area**. **Comment list** shows every
+  annotation with its page, type and author, and jumps to or deletes any of them.
+  Each is one Undo/Redo step and all survive Save as and reopening.
 
 Inline editing currently handles upright pages and horizontal text. OCR is
 needed for scanned text. Existing PDF sections keep their original font size.
@@ -114,7 +121,7 @@ Normal export is unencrypted. Password export creates an AES-256 encrypted copy.
 | Add text boxes | Drag-create, live edit, selected-character formatting, fill/outline, alignment, move/resize, delete; save/reopen |
 | Add images | Implemented; choose an area |
 | Replace existing text | One selected match; embedded font, size, colour and baseline preserved; transparent text removal preserves background; no paragraph reflow |
-| Highlight, comments, hyperlinks | Drag-selected text highlighting; comments and links use area selection |
+| Highlight, text markup, comments, shapes, stamps | Highlight plus strikethrough / underline / squiggly over selected text; sticky notes, free-text callouts, line / arrow / rectangle / oval shapes, Adobe-style rubber stamps, and hyperlinks. A comment list navigates to and deletes any annotation. Text markup needs selected text; notes, shapes and stamps use area selection. All survive save/reopen |
 | Visual signatures | Draw and embed; not cryptographic certificate signatures |
 | Freehand pen | Live mouse scribbling, colour/thickness, printable PDF ink, stroke undo/redo |
 | Create/fill forms | Interactive text fields and checkboxes; no XFA support |

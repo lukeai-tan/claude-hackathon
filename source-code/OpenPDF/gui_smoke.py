@@ -116,7 +116,7 @@ def exercise_app(app):
     app.update()
     assert app.context_frame is not None, 'Selection did not show contextual actions'
     labels = [w.cget('text') for w in app.context_frame.winfo_children()]
-    assert all(s in labels for s in ('Edit section', 'Highlight', 'Redact', 'Copy'))
+    assert all(s in labels for s in ('Edit section', 'Highlight', 'Markup ▾', 'Redact', 'Copy'))
     from tkinter import messagebox
     with patch.object(messagebox, 'askyesno', return_value=True):
         app.redact()
@@ -294,6 +294,120 @@ def exercise_app(app):
     app.escape_mode()
     assert app.selection_mode.get() == 'text'
     print('Freehand pen, live preview, export, colour/width, cancellation and undo/redo passed.')
+
+    # Comment & markup toolkit: text markup, shapes, callout, stamp, comment list.
+    from tkinter import simpledialog
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.search_window = None
+    app.dirty = False
+    app.new()
+    app.pdf.doc[0].insert_text((50, 120), 'Mark this sentence up', fontsize=18, fontname='hebo')
+    app.refresh()
+    app.canvas.xview_moveto(0)
+    app.canvas.yview_moveto(0)
+    app.update()
+
+    def kinds_on_page():
+        return [a.type[1] for a in app.pdf.doc[0].annots()]
+
+    # Strikethrough via markup mode: enter mode, drag across a word, release applies it.
+    app.markup_mode('strikeout')
+    r = app.pdf.doc[0].search_for('sentence')[0]
+    app.canvas.event_generate('<ButtonPress-1>', x=int(r.x0 + 21), y=int(r.y0 + 22))
+    app.canvas.event_generate('<B1-Motion>', x=int(r.x1 + 19), y=int(r.y0 + 22))
+    app.canvas.event_generate('<ButtonRelease-1>', x=int(r.x1 + 19), y=int(r.y0 + 22))
+    app.update()
+    assert kinds_on_page().count('StrikeOut') == 1, 'Markup mode did not strike through the selection'
+    app.undo()
+    assert 'StrikeOut' not in kinds_on_page(), 'Undo did not remove the markup'
+    app.redo()
+    assert 'StrikeOut' in kinds_on_page(), 'Redo did not restore the markup'
+
+    # Right-click markup path applies to the current text selection.
+    app.escape_mode()
+    app.selection_mode.set('text')
+    app.clear_selection()
+    app.render()
+    r = app.pdf.doc[0].search_for('Mark')[0]
+    app.canvas.event_generate('<ButtonPress-1>', x=int(r.x0 + 21), y=int(r.y0 + 22))
+    app.canvas.event_generate('<B1-Motion>', x=int(r.x1 + 19), y=int(r.y0 + 22))
+    app.canvas.event_generate('<ButtonRelease-1>', x=int(r.x1 + 19), y=int(r.y0 + 22))
+    app.update()
+    app.markup_selected('underline')
+    assert 'Underline' in kinds_on_page(), 'Right-click underline did not apply'
+
+    # Arrow shape placed through an Area selection drag.
+    app.selection_mode.set('area')
+    app.clear_selection()
+    app.render()
+    app.canvas.event_generate('<ButtonPress-1>', x=90, y=250)
+    app.canvas.event_generate('<B1-Motion>', x=260, y=300)
+    app.canvas.event_generate('<ButtonRelease-1>', x=260, y=300)
+    app.update()
+    app.annotate_shape('arrow')
+    assert 'Line' in kinds_on_page(), 'Arrow shape was not added'
+
+    # Free-text callout over an Area selection.
+    app.selection_mode.set('area')
+    app.clear_selection()
+    app.render()
+    app.canvas.event_generate('<ButtonPress-1>', x=90, y=330)
+    app.canvas.event_generate('<B1-Motion>', x=300, y=390)
+    app.canvas.event_generate('<ButtonRelease-1>', x=300, y=390)
+    app.update()
+    with patch.object(simpledialog, 'askstring', return_value='A callout note'):
+        app.callout()
+    assert any(a.type[1] == 'FreeText' and a.info.get('content') == 'A callout note'
+               for a in app.pdf.doc[0].annots()), 'Callout text was not added'
+
+    # Rubber stamp chosen from the dropdown dialog.
+    app.selection_mode.set('area')
+    app.clear_selection()
+    app.render()
+    app.canvas.event_generate('<ButtonPress-1>', x=90, y=430)
+    app.canvas.event_generate('<B1-Motion>', x=260, y=500)
+    app.canvas.event_generate('<ButtonRelease-1>', x=260, y=500)
+    app.update()
+    app.stamp()
+    app.update()
+    stamp_win = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+    next(w for w in descendants(stamp_win) if w.winfo_class() == 'TCombobox').set('Confidential')
+    next(w for w in descendants(stamp_win)
+         if w.winfo_class() == 'TButton' and w.cget('text') == 'Place stamp').invoke()
+    app.update()
+    assert any(a.type[1] == 'Stamp' and a.info.get('content') == 'Confidential'
+               for a in app.pdf.doc[0].annots()), 'Stamp was not placed'
+
+    # Comment list enumerates every annotation and deletes the selected one.
+    total = len(app.pdf.annotations())
+    assert total >= 4, 'Expected markup, shape, callout and stamp annotations'
+    app.comment_list()
+    app.update()
+    list_win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+    tree = next(w for w in descendants(list_win) if w.winfo_class() == 'Treeview')
+    rows = tree.get_children()
+    assert len(rows) == total, 'Comment list did not show every annotation'
+    tree.selection_set(rows[0])
+    tree.focus(rows[0])
+    next(w for w in descendants(list_win)
+         if w.winfo_class() == 'TButton' and w.cget('text') == 'Delete').invoke()
+    app.update()
+    assert len(app.pdf.annotations()) == total - 1, 'Comment list delete did not remove an annotation'
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    # Markup, shapes, callout and stamp survive a save/reopen round-trip.
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / 'annotated.pdf'
+        app.pdf.save(path)
+        with fitz.open(path) as saved:
+            assert len(list(saved[0].annots())) == total - 1, 'Annotations lost on reopen'
+        app.pdf.restore(app.pdf.bytes())
+    app.selection_mode.set('text')
+    print('Comment & markup toolkit: text markup, shapes, callout, stamp, comment list and round-trip passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui

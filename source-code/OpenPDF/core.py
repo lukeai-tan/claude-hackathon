@@ -139,6 +139,93 @@ class PDF:
         page.add_highlight_annot(boxes)
         return len(boxes)
 
+    # Text-markup annotations draw over selected character quads.
+    MARKUP = {'highlight': 'add_highlight_annot', 'strikeout': 'add_strikeout_annot',
+              'underline': 'add_underline_annot', 'squiggly': 'add_squiggly_annot'}
+
+    def markup(self, index, quads, kind, author='OpenPDF'):
+        method = self.MARKUP.get(kind)
+        if not method:
+            raise ValueError('Unknown markup type.')
+        if not quads:
+            raise ValueError('Select text first, then choose a markup.')
+        page = self.doc[index]  # keep the page alive so annot.update() can reach it
+        annot = getattr(page, method)(quads)
+        annot.set_info(title=author)
+        annot.update()
+        return annot
+
+    def note(self, index, point, text, author='OpenPDF'):
+        if not text.strip():
+            raise ValueError('Enter note text.')
+        page = self.doc[index]
+        annot = page.add_text_annot(point, text)
+        annot.set_info(title=author)
+        annot.update()
+        return annot
+
+    def callout(self, index, rect, text, author='OpenPDF', size=11):
+        if not text.strip():
+            raise ValueError('Enter callout text.')
+        page = self.doc[index]
+        annot = page.add_freetext_annot(rect, text, fontsize=size)
+        annot.set_info(title=author)
+        annot.update()
+        return annot
+
+    def shape(self, index, kind, rect, color=(0.16, 0.16, 0.55), width=1.5, author='OpenPDF'):
+        page = self.doc[index]
+        if kind in ('line', 'arrow'):
+            annot = page.add_line_annot(rect.tl, rect.br)
+            if kind == 'arrow':
+                annot.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_OPEN_ARROW)
+        elif kind == 'rectangle':
+            annot = page.add_rect_annot(rect)
+        elif kind == 'oval':
+            annot = page.add_circle_annot(rect)
+        else:
+            raise ValueError('Unknown shape type.')
+        annot.set_colors(stroke=color)
+        annot.set_border(width=width)
+        annot.set_info(title=author)
+        annot.update()
+        return annot
+
+    # Adobe-style rubber stamps; id maps to fitz.STAMP_* (0 = Approved).
+    STAMPS = ['Approved', 'AsIs', 'Confidential', 'Departmental', 'Experimental',
+              'Expired', 'Final', 'ForComment', 'ForPublicRelease', 'NotApproved',
+              'NotForPublicRelease', 'Sold', 'TopSecret', 'Draft']
+
+    def stamp(self, index, rect, stamp_id, author='OpenPDF'):
+        if not 0 <= stamp_id < len(self.STAMPS):
+            raise ValueError('Unknown stamp.')
+        page = self.doc[index]
+        annot = page.add_stamp_annot(rect, stamp=stamp_id)
+        annot.set_info(title=author)
+        annot.update()
+        return annot
+
+    def annotations(self):
+        # Every markup/shape/note/stamp/ink annotation across the document.
+        items = []
+        for index in range(len(self.doc)):
+            page = self.doc[index]  # hold the page; annots die with their parent
+            for annot in page.annots():
+                info = annot.info
+                items.append({'page': index, 'kind': annot.type[1],
+                              'text': info.get('content', '') or '',
+                              'author': info.get('title', '') or '',
+                              'rect': tuple(annot.rect), 'xref': annot.xref})
+        return items
+
+    def delete_annotation(self, index, xref):
+        page = self.doc[index]
+        for annot in page.annots():
+            if annot.xref == xref:
+                page.delete_annot(annot)
+                return True
+        return False
+
     def add_field(self, index, rect, name, checkbox=False):
         if not name.strip():
             raise ValueError('A field name is required.')
