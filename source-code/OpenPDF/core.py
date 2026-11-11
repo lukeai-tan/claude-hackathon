@@ -54,13 +54,33 @@ class PDF:
         self.doc.close()
         self.doc = fitz.open(stream=data, filetype='pdf')
 
-    def save(self, path, password='', owner_password=''):
+    # User-facing permission groups; each maps to the low-level PDF_PERM_* flags
+    # that a password-protected export grants to whoever opens with the password.
+    PERMISSIONS = [
+        ('print', 'Allow printing', fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ),
+        ('copy', 'Allow copying text and images', fitz.PDF_PERM_COPY | fitz.PDF_PERM_ACCESSIBILITY),
+        ('modify', 'Allow editing the content', fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_ASSEMBLE),
+        ('annotate', 'Allow comments and markup', fitz.PDF_PERM_ANNOTATE),
+        ('forms', 'Allow filling form fields', fitz.PDF_PERM_FORM),
+    ]
+
+    @staticmethod
+    def permission_mask(allowed_keys):
+        allowed = set(allowed_keys)
+        mask = 0
+        for key, _label, flags in PDF.PERMISSIONS:
+            if key in allowed:
+                mask |= flags
+        return mask
+
+    def save(self, path, password='', owner_password='', permissions=None):
         options = dict(garbage=4, deflate=True)
         if password:
+            if permissions is None:  # no restrictions chosen: grant everything
+                permissions = self.permission_mask(key for key, _label, _flags in self.PERMISSIONS)
             options.update(encryption=fitz.PDF_ENCRYPT_AES_256,
                            user_pw=password, owner_pw=owner_password or password,
-                           permissions=fitz.PDF_PERM_PRINT | fitz.PDF_PERM_COPY |
-                           fitz.PDF_PERM_ANNOTATE | fitz.PDF_PERM_MODIFY)
+                           permissions=permissions)
         data = self.doc.tobytes(**options)
         # Atomic replacement avoids truncating a source PDF that is still open.
         target = Path(path)
