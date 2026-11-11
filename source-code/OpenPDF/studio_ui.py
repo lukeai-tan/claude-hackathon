@@ -145,6 +145,7 @@ def build_workspace(app):
         'Convert': ('⇄', 'The right format for your next step.', [('Export Word', app.docx), ('OCR pages', app.ocr), ('Export text', app.txt), ('Export PNGs', app.png), ('Compare text', app.compare), ('Compressed export', app.save)]),
         'Tools': ('⌕', 'The finishing touches.', [('Search', app.search), ('Watermark', app.watermark), ('Page numbers', app.numbers), ('Feature status', app.about)]),
     }
+    app.tool_categories = tuple(groups)  # single source of truth for the ribbon categories
     app.rail_buttons = {}
     def show_panel(name):
         for child in panel.winfo_children():

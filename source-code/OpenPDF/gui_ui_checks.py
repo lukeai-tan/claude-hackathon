@@ -88,7 +88,8 @@ def exercise_ui(app):
     app.fit_page()
     app.update()
     assert app.document_label.get(), 'Document title missing'
-    assert len(app.rail_buttons) == 9, 'Missing tool categories'
+    # Every defined category must render a reachable rail button (no magic count to keep in sync).
+    assert set(app.rail_buttons) == set(app.tool_categories), 'Rail buttons do not match defined tool categories'
     if os.environ.get('OPENPDF_UI_CAPTURE') == '1':
         from PIL import ImageGrab
         ImageGrab.grab(bbox=(app.winfo_rootx(), app.winfo_rooty(), app.winfo_rootx()+app.winfo_width(), app.winfo_rooty()+app.winfo_height())).save('openpdf-workspace.png')
