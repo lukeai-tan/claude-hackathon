@@ -444,6 +444,40 @@ def exercise_app(app):
         saved.close()
     print('Password export with permission restrictions passed.')
 
+    # Form fields: create a dropdown via Area selection, fill it, export/import XFDF.
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    app.refresh()
+    app.canvas.xview_moveto(0)
+    app.canvas.yview_moveto(0)
+    app.update()
+    app.selection_mode.set('area')
+    app.clear_selection()
+    app.render()
+    app.canvas.event_generate('<ButtonPress-1>', x=90, y=120)
+    app.canvas.event_generate('<B1-Motion>', x=300, y=150)
+    app.canvas.event_generate('<ButtonRelease-1>', x=300, y=150)
+    app.update()
+    with patch.object(simpledialog, 'askstring', side_effect=['city', 'Oslo, Paris, Tokyo']):
+        app.field('dropdown')
+    app.update()
+    created = {name: (value, choices) for _, name, value, _kind, choices in app.pdf.fields()}
+    assert created.get('city', (None, None))[1] == ['Oslo', 'Paris', 'Tokyo'], 'Dropdown field not created'
+    with patch.object(simpledialog, 'askstring', return_value='Paris'):
+        app.fill()
+    app.update()
+    assert app.pdf.fields()[0][2] == 'Paris', 'Dropdown value not filled'
+    with tempfile.TemporaryDirectory() as folder:
+        data = str(Path(folder) / 'answers.xfdf')
+        assert app.pdf.export_form_data(data) == 1
+        app.pdf.fill_field(0, 'city', 'Oslo')  # change it, then restore from the exported data
+        assert app.pdf.import_form_data(data) == 1
+        assert app.pdf.fields()[0][2] == 'Paris', 'Imported XFDF did not restore the value'
+    print('Form fields: dropdown create, fill, XFDF export/import passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui

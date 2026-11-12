@@ -246,37 +246,110 @@ class PDF:
                 return True
         return False
 
-    def add_field(self, index, rect, name, checkbox=False):
+    # Supported interactive field types. Radio groups need a parent-field
+    # structure PyMuPDF's add_widget does not build, so they are not offered yet.
+    FIELD_TYPES = {
+        'text': fitz.PDF_WIDGET_TYPE_TEXT,
+        'checkbox': fitz.PDF_WIDGET_TYPE_CHECKBOX,
+        'dropdown': fitz.PDF_WIDGET_TYPE_COMBOBOX,
+        'listbox': fitz.PDF_WIDGET_TYPE_LISTBOX,
+        'signature': fitz.PDF_WIDGET_TYPE_SIGNATURE,
+    }
+
+    def add_field(self, index, rect, name, kind='text', choices=None):
         if not name.strip():
             raise ValueError('A field name is required.')
+        widget_type = self.FIELD_TYPES.get(kind)
+        if widget_type is None:
+            raise ValueError('Unsupported field type.')
         if any(w.field_name == name for p in self.doc for w in (p.widgets() or [])):
             raise ValueError('Field names must be unique.')
         widget = fitz.Widget()
         widget.field_name = name
-        widget.field_type = fitz.PDF_WIDGET_TYPE_CHECKBOX if checkbox else fitz.PDF_WIDGET_TYPE_TEXT
+        widget.field_type = widget_type
         widget.rect = rect
-        widget.field_value = 'Off' if checkbox else ''
         widget.border_width = 1
         widget.border_color = (0.3, 0.5, 0.7)
         widget.text_fontsize = 12
+        if kind == 'checkbox':
+            widget.field_value = 'Off'
+        elif kind in ('dropdown', 'listbox'):
+            options = [c for c in (choices or []) if c]
+            if not options:
+                raise ValueError('Provide at least one option for a dropdown or list box.')
+            widget.choice_values = options
+            widget.field_value = options[0]
+        elif kind == 'text':
+            widget.field_value = ''
         self.doc[index].add_widget(widget)
 
     def fields(self):
-        return [(i, w.field_name, w.field_value, w.field_type) for i, p in enumerate(self.doc)
-                for w in (p.widgets() or [])]
+        return [(i, w.field_name, w.field_value, w.field_type, list(w.choice_values or []))
+                for i, p in enumerate(self.doc) for w in (p.widgets() or [])]
 
     def fill_field(self, index, name, value):
         for w in self.doc[index].widgets() or []:
             if w.field_name == name:
                 if w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
-                    w.field_value = w.on_state() if value.lower() in ('yes', 'true', '1', 'on') else 'Off'
+                    w.field_value = w.on_state() if str(value).lower() in ('yes', 'true', '1', 'on') else 'Off'
                 elif w.field_type == fitz.PDF_WIDGET_TYPE_TEXT:
                     w.field_value = value
+                elif w.field_type in (fitz.PDF_WIDGET_TYPE_COMBOBOX, fitz.PDF_WIDGET_TYPE_LISTBOX):
+                    options = w.choice_values or []
+                    if value and options and value not in options:
+                        raise ValueError(f'{value!r} is not one of: {", ".join(options)}')
+                    w.field_value = value
                 else:
-                    raise ValueError('This editor supports text and checkbox fields only.')
+                    raise ValueError('This field type cannot be filled here.')
                 w.update()
                 return
         raise ValueError('Field not found.')
+
+    _XFDF_NS = 'http://ns.adobe.com/xfdf/'
+
+    def export_form_data(self, path):
+        # Write field values as XFDF so a filled form's answers can be reused.
+        import xml.etree.ElementTree as ET
+        ns = self._XFDF_NS
+        ET.register_namespace('', ns)
+        root = ET.Element(f'{{{ns}}}xfdf')
+        container = ET.SubElement(root, f'{{{ns}}}fields')
+        count = 0
+        for page in self.doc:
+            for w in (page.widgets() or []):
+                if w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                    continue
+                field = ET.SubElement(container, f'{{{ns}}}field')
+                field.set('name', w.field_name)
+                value = ET.SubElement(field, f'{{{ns}}}value')
+                value.text = '' if w.field_value is None else str(w.field_value)
+                count += 1
+        ET.ElementTree(root).write(str(path), encoding='utf-8', xml_declaration=True)
+        return count
+
+    def import_form_data(self, path):
+        # Accept XFDF from OpenPDF or Acrobat (namespaced or not) and apply by name.
+        import xml.etree.ElementTree as ET
+        local = lambda tag: tag.rsplit('}', 1)[-1]
+        tree = ET.parse(str(path))  # local, user-selected file
+        values = {}
+        for element in tree.iter():
+            if local(element.tag) == 'field' and element.get('name'):
+                value_el = next((c for c in element if local(c.tag) == 'value'), None)
+                values[element.get('name')] = (value_el.text or '') if value_el is not None else ''
+        applied = 0
+        for page in self.doc:
+            for w in (page.widgets() or []):
+                if w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE or w.field_name not in values:
+                    continue
+                val = values[w.field_name]
+                if w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+                    w.field_value = w.on_state() if val not in ('', 'Off', 'off') else 'Off'
+                else:
+                    w.field_value = val
+                w.update()
+                applied += 1
+        return applied
 
     def watermark(self, text, **options):
         from watermark_tools import add_watermarks
