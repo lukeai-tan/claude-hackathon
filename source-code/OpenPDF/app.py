@@ -1321,6 +1321,115 @@ class App(tk.Tk):
         self.require()
         self.change(self.pdf.number_pages)
 
+    def header_footer(self):
+        self.require()
+        window = tk.Toplevel(self)
+        window.title('Header & footer')
+        window.transient(self)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text='Tokens you can use:  <page>   <pages>   <date>   <filename>',
+                  style='Muted.TLabel').grid(row=0, column=0, columnspan=4, sticky='w', pady=(0, 10))
+        for col, head in enumerate(['Left', 'Centre', 'Right']):
+            ttk.Label(frame, text=head).grid(row=1, column=col + 1, pady=(0, 4))
+        slots = {}
+        for r, band in enumerate(['header', 'footer'], start=2):
+            ttk.Label(frame, text=band.title()).grid(row=r, column=0, sticky='w', padx=(0, 10))
+            for col, align in enumerate(['left', 'center', 'right']):
+                slots[f'{band}-{align}'] = var = tk.StringVar()
+                ttk.Entry(frame, textvariable=var, width=18).grid(row=r, column=col + 1, padx=3, pady=4)
+        size, colour, scope = tk.StringVar(value='10'), tk.StringVar(value='#000000'), tk.StringVar(value='All pages')
+        options = ttk.Frame(frame)
+        options.grid(row=4, column=0, columnspan=4, sticky='w', pady=(10, 0))
+        ttk.Label(options, text='Size').pack(side='left')
+        ttk.Spinbox(options, textvariable=size, from_=6, to=48, width=4).pack(side='left', padx=(4, 12))
+        def choose():
+            picked = colorchooser.askcolor(parent=window, color=colour.get(), title='Text colour')[1]
+            if picked:
+                colour.set(picked)
+        ttk.Button(options, text='Colour', command=choose).pack(side='left')
+        ttk.Label(options, textvariable=colour).pack(side='left', padx=(4, 12))
+        ttk.Combobox(options, textvariable=scope, values=['All pages', 'Current page'], state='readonly', width=12).pack(side='left')
+        def apply():
+            try:
+                pts = float(size.get())
+            except ValueError:
+                raise ValueError('Enter a numeric size.') from None
+            rgb = tuple(int(colour.get()[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            values = {key: var.get() for key, var in slots.items()}
+            filename = Path(self.path).name if self.path else ''
+            current = self.index if scope.get() == 'Current page' else None
+            self.change(lambda: self.pdf.apply_header_footer(values, filename=filename, size=pts, color=rgb,
+                                                             first=current, last=current),
+                        'Header/footer added. Undo removes it.')
+            window.destroy()
+        actions = ttk.Frame(frame)
+        actions.grid(row=5, column=0, columnspan=4, sticky='e', pady=(12, 0))
+        ttk.Button(actions, text='Cancel', command=window.destroy).pack(side='left', padx=4)
+        ttk.Button(actions, text='Apply', command=lambda: self.guard(apply)).pack(side='left')
+        window.bind('<Escape>', lambda event: window.destroy())
+        window.grab_set()
+
+    def bates(self):
+        self.require()
+        window = tk.Toplevel(self)
+        window.title('Bates numbering')
+        window.transient(self)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        prefix, suffix = tk.StringVar(), tk.StringVar()
+        start, digits = tk.StringVar(value='1'), tk.StringVar(value='6')
+        position, size = tk.StringVar(value='bottom-right'), tk.StringVar(value='10')
+        colour, scope = tk.StringVar(value='#000000'), tk.StringVar(value='All pages')
+        rows = [
+            ('Prefix', ttk.Entry(frame, textvariable=prefix, width=24)),
+            ('Suffix', ttk.Entry(frame, textvariable=suffix, width=24)),
+            ('Start number', ttk.Spinbox(frame, textvariable=start, from_=0, to=10000000, width=12)),
+            ('Digits (zero-padded)', ttk.Spinbox(frame, textvariable=digits, from_=1, to=12, width=12)),
+            ('Position', ttk.Combobox(frame, textvariable=position, values=self.pdf.BATES_POSITIONS, state='readonly')),
+            ('Font size', ttk.Spinbox(frame, textvariable=size, from_=6, to=48, width=12)),
+            ('Pages', ttk.Combobox(frame, textvariable=scope, values=['All pages', 'Current page'], state='readonly')),
+        ]
+        for r, (label, widget) in enumerate(rows):
+            ttk.Label(frame, text=label).grid(row=r, column=0, sticky='w', padx=(0, 12), pady=4)
+            widget.grid(row=r, column=1, sticky='ew', pady=4)
+        def choose():
+            picked = colorchooser.askcolor(parent=window, color=colour.get(), title='Text colour')[1]
+            if picked:
+                colour.set(picked)
+        ttk.Button(frame, text='Colour', command=choose).grid(row=len(rows), column=0, sticky='w', pady=4)
+        ttk.Label(frame, textvariable=colour).grid(row=len(rows), column=1, sticky='w')
+        preview = tk.StringVar()
+        def refresh(*_):
+            try:
+                preview.set('Example: ' + f'{prefix.get()}{int(start.get()):0{max(1, int(digits.get()))}d}{suffix.get()}')
+            except ValueError:
+                preview.set('')
+        for var in (prefix, suffix, start, digits):
+            var.trace_add('write', refresh)
+        refresh()
+        ttk.Label(frame, textvariable=preview, style='Muted.TLabel').grid(row=len(rows) + 1, column=0, columnspan=2, sticky='w', pady=(8, 0))
+        def apply():
+            try:
+                start_value, digit_count, pts = int(start.get()), int(digits.get()), float(size.get())
+            except ValueError:
+                raise ValueError('Start, digits and size must be numbers.') from None
+            rgb = tuple(int(colour.get()[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            current = self.index if scope.get() == 'Current page' else None
+            self.change(lambda: self.pdf.bates_number(prefix=prefix.get(), suffix=suffix.get(), start=start_value,
+                                                      digits=digit_count, position=position.get(), size=pts,
+                                                      color=rgb, first=current, last=current),
+                        'Bates numbering added. Undo removes it.')
+            window.destroy()
+        actions = ttk.Frame(frame)
+        actions.grid(row=len(rows) + 2, column=0, columnspan=2, sticky='e', pady=(12, 0))
+        ttk.Button(actions, text='Cancel', command=window.destroy).pack(side='left', padx=4)
+        ttk.Button(actions, text='Apply', command=lambda: self.guard(apply)).pack(side='left')
+        window.bind('<Escape>', lambda event: window.destroy())
+        window.grab_set()
+
     def bookmark(self):
         self.require()
         name = sd.askstring('Bookmark', 'Title for this page:', parent=self)

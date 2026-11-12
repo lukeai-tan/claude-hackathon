@@ -143,7 +143,7 @@ def build_workspace(app):
         'Forms': ('☑', 'Turn documents into conversations.', [('Text field', lambda: app.field('text')), ('Checkbox', lambda: app.field('checkbox')), ('Dropdown', lambda: app.field('dropdown')), ('List box', lambda: app.field('listbox')), ('Signature field', lambda: app.field('signature')), ('Fill fields', app.fill), ('Export data', app.export_form), ('Import data', app.import_form)]),
         'Protect': ('◇', 'Choose what your document shares.', [('Redact selection', app.redact), ('Remove private data', app.sanitize), ('Password export', app.encrypt), ('Metadata', app.metadata)]),
         'Convert': ('⇄', 'The right format for your next step.', [('Export Word', app.docx), ('OCR pages', app.ocr), ('Export text', app.txt), ('Export PNGs', app.png), ('Compare text', app.compare), ('Optimize / reduce size', app.optimize), ('Compressed export', app.save)]),
-        'Tools': ('⌕', 'The finishing touches.', [('Search', app.search), ('Watermark', app.watermark), ('Page numbers', app.numbers), ('Feature status', app.about)]),
+        'Tools': ('⌕', 'The finishing touches.', [('Search', app.search), ('Watermark', app.watermark), ('Page numbers', app.numbers), ('Header / footer', app.header_footer), ('Bates numbering', app.bates), ('Feature status', app.about)]),
     }
     app.tool_categories = tuple(groups)  # single source of truth for the ribbon categories
     app.rail_buttons = {}

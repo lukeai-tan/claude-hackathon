@@ -138,7 +138,7 @@ you leave it blank one is generated so the restrictions cannot be lifted.
 | Office to PDF | Requires separately installed LibreOffice |
 | Document comparison | Text diff HTML; image/layout differences not detected |
 | Optimize / compression / batch | Optimize dialog downsamples and recompresses images (lossy; adjustable DPI and JPEG quality), subsets fonts and can strip metadata, with a before/after size estimate and output to a new file; plus lossless stream compression and multi-file batch compression |
-| Watermarks, numbering, bookmarks, metadata | Implemented |
+| Watermarks, numbering, headers/footers, Bates, bookmarks, metadata | Implemented. Headers/footers use left/centre/right slots with `<page>` `<pages>` `<date>` `<filename>` tokens; Bates numbering supports prefix/suffix, start number, zero-padding, position, and a sequence that continues across documents |
 | Search | Searches text on all pages; OCR needed for scans |
 | Remote signature delivery/identity/audit service | Not implemented |
 | Certificate signatures, real-time cloud collaboration | Not implemented |
