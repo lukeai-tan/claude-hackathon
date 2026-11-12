@@ -517,6 +517,37 @@ def exercise_app(app):
         assert _os.path.getsize(out) < before, 'Optimized file was not smaller than the original'
     print('PDF Optimizer: downsample, estimate and smaller export passed.')
 
+    # Headers/footers with tokens, and Bates numbering, across two pages.
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    app.pdf.doc.new_page(width=420, height=560)  # second page so <pages> reads 2
+    app.refresh()
+    app.update()
+    app.header_footer()
+    app.update()
+    hf = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+    entries = [w for w in descendants(hf) if w.winfo_class() == 'TEntry']
+    assert len(entries) == 6, 'Expected six header/footer slots'
+    entries[4].insert(0, 'Page <page> of <pages>')  # footer-center
+    next(w for w in descendants(hf) if w.winfo_class() == 'TButton' and w.cget('text') == 'Apply').invoke()
+    app.update()
+    assert 'Page 1 of 2' in app.pdf.doc[0].get_text(), 'Header/footer tokens not applied'
+    assert 'Page 2 of 2' in app.pdf.doc[1].get_text(), 'Header/footer not applied to page two'
+
+    app.bates()
+    app.update()
+    bd = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+    bentries = [w for w in descendants(bd) if w.winfo_class() == 'TEntry']
+    bentries[0].insert(0, 'DOC-')  # prefix
+    next(w for w in descendants(bd) if w.winfo_class() == 'TButton' and w.cget('text') == 'Apply').invoke()
+    app.update()
+    assert 'DOC-000001' in app.pdf.doc[0].get_text(), 'Bates number not applied'
+    assert 'DOC-000002' in app.pdf.doc[1].get_text(), 'Bates sequence did not advance'
+    print('Headers/footers with tokens and Bates numbering passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui

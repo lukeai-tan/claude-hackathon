@@ -1,5 +1,6 @@
 """Local PDF operations. Coordinates are PDF points in unrotated page space."""
 from pathlib import Path
+import datetime
 import difflib
 import html
 import io
@@ -392,6 +393,65 @@ class PDF:
         for i, page in enumerate(self.doc):
             page.insert_text((page.rect.width / 2, page.rect.height - 20),
                              f'{i + 1} / {len(self.doc)}', fontsize=10)
+
+    # Header/footer slots; templates may contain <page> <pages> <date> <filename>.
+    HEADER_FOOTER_SLOTS = ['header-left', 'header-center', 'header-right',
+                           'footer-left', 'footer-center', 'footer-right']
+
+    def _range(self, first, last):
+        total = len(self.doc)
+        first = 0 if first is None else max(0, first)
+        last = total - 1 if last is None else min(total - 1, last)
+        return first, last
+
+    def _place(self, page, text, band, align, size, color, font, margin):
+        width = fitz.get_text_length(text, fontname=font, fontsize=size)
+        if align == 'left':
+            x = margin
+        elif align == 'right':
+            x = page.rect.width - margin - width
+        else:
+            x = (page.rect.width - width) / 2
+        y = margin if band in ('header', 'top') else page.rect.height - margin
+        page.insert_text((x, y), text, fontsize=size, fontname=font, color=color)
+
+    def apply_header_footer(self, slots, filename='', size=10, color=(0, 0, 0),
+                            font='helv', margin=36, first=None, last=None):
+        if not any((slots.get(k) or '').strip() for k in self.HEADER_FOOTER_SLOTS):
+            raise ValueError('Enter text for at least one header or footer position.')
+        first, last = self._range(first, last)
+        total = len(self.doc)
+        today = datetime.date.today().isoformat()
+        def expand(template, index):
+            return (template.replace('<page>', str(index + 1)).replace('<pages>', str(total))
+                            .replace('<date>', today).replace('<filename>', filename))
+        for index in range(first, last + 1):
+            page = self.doc[index]
+            for slot in self.HEADER_FOOTER_SLOTS:
+                template = (slots.get(slot) or '').strip()
+                if not template:
+                    continue
+                band, align = slot.split('-')
+                self._place(page, expand(template, index), band, align, size, color, font, margin)
+        return last - first + 1
+
+    BATES_POSITIONS = ['bottom-right', 'bottom-center', 'bottom-left',
+                       'top-right', 'top-center', 'top-left']
+
+    def bates_number(self, prefix='', suffix='', start=1, digits=6, position='bottom-right',
+                     size=10, color=(0, 0, 0), font='helv', margin=36, first=None, last=None):
+        if digits < 1:
+            raise ValueError('Use at least one digit.')
+        if position not in self.BATES_POSITIONS:
+            raise ValueError('Unknown Bates position.')
+        first, last = self._range(first, last)
+        band, align = position.split('-')
+        counter = start
+        for index in range(first, last + 1):
+            label = f'{prefix}{counter:0{digits}d}{suffix}'
+            counter += 1
+            self._place(self.doc[index], label, band, align, size, color, font, margin)
+        return counter  # next number, for continuing the sequence across documents
 
     def export_images(self, folder, dpi=144):
         for i, page in enumerate(self.doc):
