@@ -478,6 +478,45 @@ def exercise_app(app):
         assert app.pdf.fields()[0][2] == 'Paris', 'Imported XFDF did not restore the value'
     print('Form fields: dropdown create, fill, XFDF export/import passed.')
 
+    # PDF Optimizer: downsample a high-resolution image and confirm the file shrinks.
+    import io
+    import os as _os
+    from PIL import Image as _Image
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    gradient = _Image.merge('RGB', [_Image.linear_gradient('L'),
+                                    _Image.linear_gradient('L').rotate(90),
+                                    _Image.linear_gradient('L').rotate(45)]).resize((1200, 900))
+    img_buf = io.BytesIO()
+    gradient.save(img_buf, format='PNG')
+    app.pdf.doc[0].insert_image(fitz.Rect(0, 0, 420, 320), stream=img_buf.getvalue())
+    app.refresh()
+    app.update()
+    before = app.pdf.current_size()
+    app.optimize()
+    app.update()
+    dialog = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+    next(w for w in descendants(dialog)
+         if w.winfo_class() == 'TButton' and w.cget('text') == 'Estimate size').invoke()
+    app.update()
+    projected = next(w for w in descendants(dialog) if w.winfo_class() == 'TLabel' and str(w.cget('textvariable')))
+    assert 'Projected' in app.getvar(projected.cget('textvariable')), 'Estimate did not report a projection'
+    with tempfile.TemporaryDirectory() as folder:
+        out = str(Path(folder) / 'optimized.pdf')
+        original_output = app.output
+        app.output = lambda ext: out
+        try:
+            next(w for w in descendants(dialog)
+                 if w.winfo_class() == 'TButton' and w.cget('text') == 'Export').invoke()
+            app.update()
+        finally:
+            app.output = original_output
+        assert _os.path.getsize(out) < before, 'Optimized file was not smaller than the original'
+    print('PDF Optimizer: downsample, estimate and smaller export passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui

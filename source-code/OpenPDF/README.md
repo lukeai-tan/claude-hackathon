@@ -137,7 +137,7 @@ you leave it blank one is generated so the restrictions cannot be lifted.
 | Images to PDF | Implemented |
 | Office to PDF | Requires separately installed LibreOffice |
 | Document comparison | Text diff HTML; image/layout differences not detected |
-| Compression/batch | Lossless stream compression and garbage collection; reduction not guaranteed |
+| Optimize / compression / batch | Optimize dialog downsamples and recompresses images (lossy; adjustable DPI and JPEG quality), subsets fonts and can strip metadata, with a before/after size estimate and output to a new file; plus lossless stream compression and multi-file batch compression |
 | Watermarks, numbering, bookmarks, metadata | Implemented |
 | Search | Searches text on all pages; OCR needed for scans |
 | Remote signature delivery/identity/audit service | Not implemented |

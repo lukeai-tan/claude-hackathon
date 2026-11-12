@@ -1152,6 +1152,54 @@ class App(tk.Tk):
             return len(paths)
         self.background(work, lambda n: self.status.set(f'Compressed {n} PDFs. Already optimized files may not shrink.'), 'Compressing PDFs…')
 
+    def optimize(self):
+        self.require()
+        before = self.pdf.current_size()
+        def human(n):
+            return f'{n / 1048576:.1f} MB' if n >= 1048576 else f'{n / 1024:.0f} KB'
+        def delta(size):
+            pct = round(100 * (before - size) / before) if before else 0
+            return f'{pct}% smaller' if pct > 0 else (f'{-pct}% larger' if pct < 0 else 'about the same size')
+        window = tk.Toplevel(self)
+        window.title('Optimize PDF')
+        window.transient(self)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text=f'Current size: {human(before)}').pack(anchor='w')
+        dpi, quality = tk.IntVar(value=120), tk.IntVar(value=70)
+        images, fonts, meta = tk.BooleanVar(value=True), tk.BooleanVar(value=True), tk.BooleanVar(value=False)
+        row = ttk.Frame(frame)
+        row.pack(anchor='w', pady=(10, 2), fill='x')
+        ttk.Label(row, text='Image resolution (DPI):').pack(side='left')
+        ttk.Spinbox(row, textvariable=dpi, from_=50, to=300, increment=10, width=6).pack(side='left', padx=6)
+        row2 = ttk.Frame(frame)
+        row2.pack(anchor='w', pady=2, fill='x')
+        ttk.Label(row2, text='JPEG quality (lower = smaller):').pack(side='left')
+        ttk.Spinbox(row2, textvariable=quality, from_=20, to=95, increment=5, width=6).pack(side='left', padx=6)
+        ttk.Checkbutton(frame, text='Downsample and recompress images', variable=images).pack(anchor='w', pady=(8, 0))
+        ttk.Checkbutton(frame, text='Subset embedded fonts', variable=fonts).pack(anchor='w')
+        ttk.Checkbutton(frame, text='Strip metadata', variable=meta).pack(anchor='w')
+        projected = tk.StringVar(value='')
+        ttk.Label(frame, textvariable=projected, style='Muted.TLabel').pack(anchor='w', pady=(8, 0))
+        def options():
+            return dict(dpi=max(50, min(300, dpi.get())), quality=max(20, min(95, quality.get())),
+                        downsample_images=images.get(), subset_fonts=fonts.get(), strip_metadata=meta.get())
+        def estimate():
+            size = len(self.pdf.optimized_bytes(**options()))
+            projected.set(f'Projected: {human(size)} ({delta(size)}). Downsampling is lossy — review quality.')
+        def export():
+            window.destroy()
+            path = self.output('.pdf')
+            if path:
+                size = self.pdf.optimize(path, **options())
+                self.status.set(f'Optimized {human(before)} → {human(size)} ({delta(size)}). Saved a new file.')
+        buttons = ttk.Frame(frame)
+        buttons.pack(anchor='e', pady=(10, 0))
+        ttk.Button(buttons, text='Cancel', command=window.destroy).pack(side='right', padx=(6, 0))
+        ttk.Button(buttons, text='Export', command=lambda: self.guard(export)).pack(side='right')
+        ttk.Button(buttons, text='Estimate size', command=lambda: self.guard(estimate)).pack(side='right', padx=(0, 6))
+        window.grab_set()
+
     def search(self):
         self.require()
         if self.search_window and self.search_window.winfo_exists():
