@@ -81,7 +81,10 @@ class PDF:
             options.update(encryption=fitz.PDF_ENCRYPT_AES_256,
                            user_pw=password, owner_pw=owner_password or password,
                            permissions=permissions)
-        data = self.doc.tobytes(**options)
+        self._atomic_write(path, self.doc.tobytes(**options))
+
+    @staticmethod
+    def _atomic_write(path, data):
         # Atomic replacement avoids truncating a source PDF that is still open.
         target = Path(path)
         fd, tmp = tempfile.mkstemp(dir=target.parent, suffix='.pdf')
@@ -92,6 +95,36 @@ class PDF:
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
+
+    def current_size(self):
+        return len(self.doc.tobytes(garbage=4, deflate=True))
+
+    def optimized_bytes(self, dpi=120, quality=70, downsample_images=True,
+                        subset_fonts=True, strip_metadata=False):
+        # Work on a copy so the open document is never mutated by optimization.
+        work = fitz.open('pdf', self.doc.tobytes())
+        try:
+            if strip_metadata:
+                work.set_metadata({})
+                work.del_xml_metadata()
+            if downsample_images:
+                # Downsample images meaningfully above the target DPI (Acrobat uses
+                # a ~1.5x threshold) down to it, re-encoding at the chosen quality.
+                work.rewrite_images(dpi_threshold=max(dpi + 1, round(dpi * 1.5)), dpi_target=dpi,
+                                    quality=quality, lossy=True, lossless=True)
+            if subset_fonts:
+                try:
+                    work.subset_fonts()
+                except Exception:
+                    pass  # subsetting can fail on unusual fonts; skip rather than abort
+            return work.tobytes(garbage=4, deflate=True, clean=True)
+        finally:
+            work.close()
+
+    def optimize(self, path, **options):
+        data = self.optimized_bytes(**options)
+        self._atomic_write(path, data)
+        return len(data)
 
     def merge(self, paths):
         for path in paths:
