@@ -5,7 +5,7 @@ python -m pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) { throw 'Dependency install failed' }
 python -m unittest discover -s tests -v
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
-$buildArgs = @('--noconfirm', '--clean', '--onefile', '--windowed', '--name', 'OpenPDF', '--collect-all', 'pymupdf', '--collect-all', 'pdf2docx', '--collect-submodules', 'fontTools.ttLib.tables', '--add-data', 'LICENSE;.', '--add-data', 'THIRD_PARTY.md;.')
+$buildArgs = @('--noconfirm', '--clean', '--onefile', '--windowed', '--name', 'OpenPDF', '--collect-all', 'pymupdf', '--collect-all', 'pdf2docx', '--collect-submodules', 'fontTools.ttLib.tables', '--collect-all', 'pyhanko', '--collect-all', 'pyhanko_certvalidator', '--collect-all', 'asn1crypto', '--add-data', 'LICENSE;.', '--add-data', 'THIRD_PARTY.md;.')
 $ocrPath = 'C:\Program Files\Tesseract-OCR'
 if (Test-Path "$ocrPath\tesseract.exe") {
     $buildArgs += @('--add-data', "$ocrPath;tesseract")

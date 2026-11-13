@@ -1038,6 +1038,89 @@ class App(tk.Tk):
             data[key] = value
         self.change(lambda: self.pdf.doc.set_metadata(data))
 
+    def create_digital_id(self):
+        window = tk.Toplevel(self)
+        window.title('Create digital ID')
+        window.transient(self)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        name, org, password = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        ttk.Label(frame, text='A self-signed digital ID (.p12) for signing PDFs. Keep the file and\n'
+                             'password safe; anyone with both can sign as you.',
+                  style='Muted.TLabel', justify='left').grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 10))
+        for r, (label, var, hide) in enumerate([('Name', name, False), ('Organisation (optional)', org, False),
+                                                ('Password', password, True)], start=1):
+            ttk.Label(frame, text=label).grid(row=r, column=0, sticky='w', padx=(0, 10), pady=4)
+            ttk.Entry(frame, textvariable=var, width=30, show='*' if hide else '').grid(row=r, column=1, pady=4)
+        def create():
+            path = fd.asksaveasfilename(defaultextension='.p12', filetypes=[('Digital ID', '*.p12')])
+            if not path:
+                return
+            PDF.create_signing_id(path, name.get(), password.get(), org.get())
+            window.destroy()
+            self.status.set(f'Digital ID saved to {Path(path).name}. Use "Sign (certificate)" to sign with it.')
+        actions = ttk.Frame(frame)
+        actions.grid(row=4, column=0, columnspan=2, sticky='e', pady=(12, 0))
+        ttk.Button(actions, text='Cancel', command=window.destroy).pack(side='left', padx=4)
+        ttk.Button(actions, text='Create', command=lambda: self.guard(create)).pack(side='left')
+        window.grab_set()
+
+    def sign_document(self):
+        self.require()
+        pkcs12_path = fd.askopenfilename(title='Choose your digital ID', filetypes=[('Digital ID', '*.p12 *.pfx')])
+        if not pkcs12_path:
+            return
+        window = tk.Toplevel(self)
+        window.title('Sign with certificate')
+        window.transient(self)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        password, reason, location = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        for r, (label, var, hide) in enumerate([('ID password', password, True), ('Reason (optional)', reason, False),
+                                                ('Location (optional)', location, False)]):
+            ttk.Label(frame, text=label).grid(row=r, column=0, sticky='w', padx=(0, 10), pady=4)
+            ttk.Entry(frame, textvariable=var, width=30, show='*' if hide else '').grid(row=r, column=1, pady=4)
+        def sign():
+            out = self.output('.pdf')
+            if not out:
+                return
+            self.pdf.sign(out, pkcs12_path, password.get(), reason=reason.get(), location=location.get())
+            window.destroy()
+            self.status.set(f'Signed copy saved to {Path(out).name}. Open it and use "Verify signatures" to check.')
+        actions = ttk.Frame(frame)
+        actions.grid(row=3, column=0, columnspan=2, sticky='e', pady=(12, 0))
+        ttk.Button(actions, text='Cancel', command=window.destroy).pack(side='left', padx=4)
+        ttk.Button(actions, text='Sign', command=lambda: self.guard(sign)).pack(side='left')
+        window.grab_set()
+
+    def verify_document(self):
+        self.require()
+        if not self.path:
+            raise ValueError('Open a signed PDF file first; verification reads the file on disk.')
+        results = self.pdf.verify_signatures(Path(self.path).read_bytes())
+        if not results:
+            self.status.set('No digital signatures found in this file.')
+            return
+        window = tk.Toplevel(self)
+        window.title('Signatures')
+        window.transient(self)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill='both', expand=True)
+        for result in results:
+            unmodified = result['intact']
+            mark = '✓' if unmodified else '✗'
+            line = (f"{mark}  {result['field']} — signed by {result['signer']}\n"
+                    f"     {'Document unchanged since signing' if unmodified else 'Modified after signing'};"
+                    f" signature {'cryptographically valid' if result['valid'] else 'invalid'}")
+            ttk.Label(frame, text=line, justify='left',
+                      foreground='#15803d' if unmodified else '#b91c1c').pack(anchor='w', pady=4)
+        ttk.Label(frame, text='Self-signed IDs are valid but not chained to a trusted authority.',
+                  style='Muted.TLabel').pack(anchor='w', pady=(8, 0))
+        ttk.Button(frame, text='Close', command=window.destroy).pack(anchor='e', pady=(12, 0))
+        window.grab_set()
+
     def background(self, work, done, message):
         self.busy = True
         self.status.set(message)

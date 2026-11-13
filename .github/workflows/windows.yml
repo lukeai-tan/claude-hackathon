@@ -110,7 +110,7 @@ jobs:
         run: |
           $ocrPath = 'C:\Program Files\Tesseract-OCR'
           if (!(Test-Path "$ocrPath\tesseract.exe")) { throw 'Tesseract missing' }
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF --collect-all pymupdf --collect-all pdf2docx --collect-submodules fontTools.ttLib.tables --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF --collect-all pymupdf --collect-all pdf2docx --collect-submodules fontTools.ttLib.tables --collect-all pyhanko --collect-all pyhanko_certvalidator --collect-all asn1crypto --add-data "$ocrPath;tesseract" --add-data "LICENSE;." --add-data "THIRD_PARTY.md;." app.py
           if ($LASTEXITCODE -ne 0) { throw 'OpenPDF build failed' }
       - name: Build standalone OpenSlides
         run: npm run desktop:build --prefix source-code/OpenSlides

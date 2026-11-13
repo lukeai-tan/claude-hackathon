@@ -182,6 +182,76 @@ class PDF:
         for name in self.doc.embfile_names():
             self.doc.embfile_del(name)
 
+    @staticmethod
+    def create_signing_id(path, common_name, password, organization='', days=3650):
+        # Generate a self-signed digital ID (key + certificate) as a PKCS#12 file.
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.serialization import pkcs12
+        if not common_name.strip():
+            raise ValueError('Enter a name for the digital ID.')
+        if not password:
+            raise ValueError('Set a password to protect the digital ID.')
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        attributes = [x509.NameAttribute(NameOID.COMMON_NAME, common_name.strip())]
+        if organization.strip():
+            attributes.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization.strip()))
+        name = x509.Name(attributes)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+                .public_key(key.public_key()).serial_number(x509.random_serial_number())
+                .not_valid_before(now).not_valid_after(now + datetime.timedelta(days=days))
+                .sign(key, hashes.SHA256()))
+        data = pkcs12.serialize_key_and_certificates(
+            common_name.strip().encode()[:30] or b'OpenPDF ID', key, cert, None,
+            serialization.BestAvailableEncryption(password.encode()))
+        Path(path).write_bytes(data)
+
+    def sign(self, output_path, pkcs12_path, password, field_name='Signature1', reason='', location=''):
+        from pyhanko.sign import signers
+        from pyhanko.sign.signers import SimpleSigner
+        from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+        try:
+            signer = SimpleSigner.load_pkcs12(pkcs12_path, passphrase=password.encode())
+        except Exception:
+            raise ValueError('Could not open the digital ID. Check the file and password.') from None
+        if signer is None:
+            raise ValueError('Could not open the digital ID. Check the file and password.')
+        meta = signers.PdfSignatureMetadata(field_name=field_name or 'Signature1',
+                                            reason=reason or None, location=location or None)
+        writer = IncrementalPdfFileWriter(io.BytesIO(self.doc.tobytes()))
+        signed = signers.sign_pdf(writer, meta, signer=signer, existing_fields_only=False)
+        self._atomic_write(output_path, signed.getvalue())
+
+    @staticmethod
+    def verify_signatures(data):
+        # Verify the raw signed bytes directly: re-serializing through the editor
+        # would change the file and break every signature's byte range. Reports
+        # integrity and signer; trust (chain to a CA) is not asserted, so
+        # self-signed IDs read as valid-but-untrusted.
+        from pyhanko.pdf_utils.reader import PdfFileReader
+        from pyhanko.sign.validation import validate_pdf_signature
+        from pyhanko.sign.validation.status import SignatureCoverageLevel
+        from pyhanko_certvalidator import ValidationContext
+        context = ValidationContext(allow_fetching=False)
+        results = []
+        reader = PdfFileReader(io.BytesIO(data))
+        for sig in reader.embedded_signatures:
+            try:
+                status = validate_pdf_signature(sig, context)
+                signer = status.signing_cert.subject.native.get('common_name', 'Unknown')
+                # "Unmodified" means the signed bytes are intact AND nothing was
+                # appended after signing (an incremental edit lowers the coverage).
+                unmodified = bool(status.intact) and status.coverage == SignatureCoverageLevel.ENTIRE_FILE
+                results.append({'field': sig.field_name, 'signer': signer,
+                                'intact': unmodified, 'valid': bool(status.valid)})
+            except Exception as error:
+                results.append({'field': getattr(sig, 'field_name', '?'), 'signer': 'Unknown',
+                                'intact': False, 'valid': False, 'error': str(error)})
+        return results
+
     def add_image(self, index, rect, path):
         self.doc[index].insert_image(rect, filename=str(path), keep_proportion=True)
 
