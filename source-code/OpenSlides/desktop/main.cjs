@@ -28,7 +28,7 @@ function guardWindow(win){
 }
 async function createWindow(){
   if(mainWindow&&!mainWindow.isDestroyed()){mainWindow.show();mainWindow.focus();return mainWindow;}
-  mainWindow=new BrowserWindow({width:1500,height:960,minWidth:1024,minHeight:700,title:'OpenSlides',backgroundColor:'#f7f7f2',autoHideMenuBar:true,webPreferences:{additionalArguments:suiteMode?['--opensuite']:[],preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
+  mainWindow=new BrowserWindow({width:1500,height:960,minWidth:1024,minHeight:700,title:'OpenSlides',backgroundColor:'#f7f7f2',autoHideMenuBar:true,webPreferences:{additionalArguments:[...(suiteMode?['--opensuite']:[]),'--app-version='+app.getVersion()],preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   guardWindow(mainWindow);
   mainWindow.webContents.setWindowOpenHandler(({url})=>{
     const u=new URL(url);
