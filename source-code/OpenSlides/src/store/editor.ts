@@ -3,7 +3,7 @@ import { produce, type Draft } from 'immer';
 import type { Asset, Deck, EditTarget, Slide, SlideElement } from '../model/types';
 
 export type Panel = 'selection' | 'slide' | 'design' | 'check' | 'outline';
-export type Dialog = null | 'resize' | 'chart' | 'shortcuts' | 'layouts';
+export type Dialog = null | 'resize' | 'chart' | 'shortcuts' | 'layouts' | 'versions';
 export type StudioTab = 'templates' | 'elements' | 'text' | 'themes' | 'uploads' | 'ai' | 'agents';
 
 export interface Guide {

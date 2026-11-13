@@ -1,5 +1,6 @@
 import { del, get, keys, set } from 'idb-keyval';
 import type { Deck } from '../model/types';
+import { uid } from '../model/factory';
 import { useEditor } from './editor';
 
 // Decks are stored in the browser's IndexedDB, so the app works fully offline
@@ -17,6 +18,44 @@ export async function loadDeck(id: string): Promise<Deck | undefined> {
 
 export async function deleteDeck(id: string): Promise<void> {
   await del(deckKey(id));
+  for (const v of await listVersions(id)) await deleteVersion(id, v.id);
+}
+
+// Version history: named snapshots of a deck, kept alongside it in IndexedDB.
+export interface DeckVersion {
+  id: string;
+  deckId: string;
+  createdAt: number;
+  label: string;
+  deck: Deck;
+}
+
+const versionPrefix = (deckId: string) => `version:${deckId}:`;
+
+export async function saveVersion(deck: Deck, label = ''): Promise<DeckVersion> {
+  const version: DeckVersion = {
+    id: uid(),
+    deckId: deck.id,
+    createdAt: Date.now(),
+    label: label.trim(),
+    deck: structuredClone(deck),
+  };
+  await set(`${versionPrefix(deck.id)}${version.id}`, version);
+  return version;
+}
+
+export async function listVersions(deckId: string): Promise<DeckVersion[]> {
+  const all = (await keys()).filter(
+    (k) => typeof k === 'string' && k.startsWith(versionPrefix(deckId)),
+  ) as string[];
+  const versions = (await Promise.all(all.map((k) => get(k)))) as (DeckVersion | undefined)[];
+  return versions
+    .filter((v): v is DeckVersion => !!v && !!v.deck)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteVersion(deckId: string, versionId: string): Promise<void> {
+  await del(`${versionPrefix(deckId)}${versionId}`);
 }
 
 export async function listDecks(): Promise<Deck[]> {

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Minus, Plus, X } from 'lucide-react';
-import { mutate, setToast, useEditor } from '../store/editor';
+import { mutate, openDeck, setToast, useEditor } from '../store/editor';
 import { editElements, enterLayoutEditing } from '../store/actions';
 import { SIZE_PRESETS } from '../model/factory';
 import { resizeDeck } from '../model/resize';
-import { saveDeck } from '../store/storage';
+import { saveDeck, saveVersion, listVersions, deleteVersion, type DeckVersion } from '../store/storage';
+import { diffDecks, type DeckDiff } from '../model/diff';
 import { navigate } from '../router';
 import type { ChartData, ChartElement } from '../model/types';
 import { ChartView } from '../render/ChartView';
@@ -40,7 +41,129 @@ export function Dialogs() {
   if (dialog === 'resize') return <ResizeDialog onClose={close} />;
   if (dialog === 'layouts') return <LayoutsDialog onClose={close} />;
   if (dialog === 'shortcuts') return <ShortcutsDialog onClose={close} />;
+  if (dialog === 'versions') return <VersionsDialog onClose={close} />;
   return null;
+}
+
+// ---------- version history ----------
+
+function VersionsDialog({ onClose }: { onClose: () => void }) {
+  const deck = useEditor((s) => s.deck)!;
+  const [versions, setVersions] = useState<DeckVersion[]>([]);
+  const [label, setLabel] = useState('');
+  const [diffView, setDiffView] = useState<{ version: DeckVersion; diff: DeckDiff } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = async () => setVersions(await listVersions(deck.id));
+  useEffect(() => {
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck.id]);
+
+  const fmt = (t: number) => new Date(t).toLocaleString();
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await saveVersion(deck, label);
+      setLabel('');
+      await reload();
+      setToast('Version saved');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restore = async (v: DeckVersion) => {
+    if (!confirm('Restore this version? Your current deck is saved as a version first, so you can undo this.')) return;
+    await saveVersion(deck, 'Before restore');
+    openDeck({ ...structuredClone(v.deck), updatedAt: Date.now() });
+    onClose();
+    setToast('Version restored');
+  };
+
+  const remove = async (v: DeckVersion) => {
+    await deleteVersion(deck.id, v.id);
+    if (diffView?.version.id === v.id) setDiffView(null);
+    await reload();
+  };
+
+  if (diffView) {
+    const { version, diff } = diffView;
+    const changed = diff.slides.filter((s) => s.status !== 'unchanged');
+    return (
+      <Modal title={`Changes since “${version.label || fmt(version.createdAt)}”`} onClose={onClose} wide>
+        <p className="small muted">{diff.summary}</p>
+        <div className="version-diff">
+          {diff.titleChange && (
+            <div className="vd-slide">
+              <strong>Title</strong>
+              <div className="small">“{diff.titleChange.from}” → “{diff.titleChange.to}”</div>
+            </div>
+          )}
+          {!diff.hasChanges && <p className="muted small">This version is identical to the current deck.</p>}
+          {changed.map((s) => (
+            <div key={s.id} className="vd-slide">
+              <strong>
+                Slide {(s.toIndex ?? s.fromIndex ?? 0) + 1} — {s.status}
+              </strong>
+              {s.changes.length > 0 && (
+                <ul>
+                  {s.changes.map((c, i) => (
+                    <li key={i} className="small">{c}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="dialog-foot">
+          <button className="btn" onClick={() => setDiffView(null)}>Back to versions</button>
+          <button className="btn primary" onClick={() => void restore(version)}>Restore this version</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Version history" onClose={onClose} wide>
+      <p className="small">Save a snapshot of this deck, then restore or compare it later. Snapshots stay on this device and are never uploaded.</p>
+      <div className="version-save">
+        <input
+          placeholder="Optional label (e.g. “Before client review”)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && void save()}
+        />
+        <button className="btn primary" onClick={() => void save()} disabled={busy}>Save version</button>
+      </div>
+      {versions.length === 0 ? (
+        <p className="muted small">No versions yet. Save one above to start a history.</p>
+      ) : (
+        <ul className="version-list">
+          {versions.map((v) => (
+            <li key={v.id}>
+              <div className="version-meta">
+                <strong>{v.label || 'Untitled version'}</strong>
+                <span className="muted small">
+                  {fmt(v.createdAt)} · {v.deck.slides.length} slide{v.deck.slides.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="version-actions">
+                <button className="btn" onClick={() => setDiffView({ version: v, diff: diffDecks(v.deck, deck) })}>
+                  Compare
+                </button>
+                <button className="btn" onClick={() => void restore(v)}>Restore</button>
+                <button className="icon-btn" aria-label="Delete version" onClick={() => void remove(v)}>
+                  <X size={16} />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
 }
 
 // ---------- chart data ----------
