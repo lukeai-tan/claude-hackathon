@@ -4,12 +4,15 @@ import queue
 import secrets
 import sys
 import os
+import tempfile
+import time
 import traceback
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog as fd, simpledialog as sd, messagebox as mb, colorchooser
 from pathlib import Path
 import webbrowser
+from versions import save_version, list_versions, read_version, delete_version, version_file
 
 # Windowed executables have no standard streams. Some conversion dependencies
 # write progress output; give them a real stream and retain diagnostic failures.
@@ -1118,6 +1121,83 @@ class App(tk.Tk):
             self.pdf.compare(other, path)
             webbrowser.open(Path(path).resolve().as_uri())
             self.status.set('Text comparison opened. Image/layout changes are not included; OCR scans first.')
+
+    def _restore_version(self, version_id):
+        # Snapshot the current state first, and record an in-memory undo step, so
+        # a restore can be reversed.
+        save_version(self.path, self.pdf.doc.tobytes(garbage=4, deflate=True), 'Before restore')
+        data = read_version(self.path, version_id)
+        self.history.append(self.pdf.bytes())
+        self.history = self.history[-8:]
+        self.redo_history.clear()
+        self.pdf.restore(data)
+        self.dirty = True
+        self.refresh()
+        self.status.set('Version restored. Undo to go back, or Save as to keep it.')
+
+    def version_history(self):
+        self.require()
+        if not self.path:
+            raise ValueError('Save the document first (Save as) to keep a version history.')
+        window = tk.Toplevel(self)
+        window.title('Version history')
+        window.transient(self)
+        window.geometry('640x420')
+        frame = ttk.Frame(window, padding=12)
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text='Snapshots of this document stay on this computer. Save a version, '
+                             'then restore or compare it later.', style='Muted.TLabel', wraplength=600).pack(anchor='w')
+        saver = ttk.Frame(frame)
+        saver.pack(fill='x', pady=8)
+        label = tk.StringVar()
+        ttk.Entry(saver, textvariable=label).pack(side='left', fill='x', expand=True)
+        tree = ttk.Treeview(frame, columns=('when', 'label', 'pages'), show='headings', height=11)
+        for col, head, width in [('when', 'Saved', 150), ('label', 'Label', 320), ('pages', 'Pages', 70)]:
+            tree.heading(col, text=head)
+            tree.column(col, width=width, anchor='w')
+        rows = {}
+        def reload():
+            tree.delete(*tree.get_children())
+            rows.clear()
+            for record in list_versions(self.path):
+                when = time.strftime('%Y-%m-%d %H:%M', time.localtime(record['created']))
+                row = tree.insert('', 'end', values=(when, record['label'] or 'Untitled version', record['pages']))
+                rows[row] = record
+        def selected():
+            item = rows.get(tree.focus())
+            if not item:
+                raise ValueError('Select a version in the list first.')
+            return item
+        def save():
+            save_version(self.path, self.pdf.doc.tobytes(garbage=4, deflate=True), label.get())
+            label.set('')
+            reload()
+            self.status.set('Version saved.')
+        def restore():
+            item = selected()
+            if mb.askyesno('Restore version', 'Replace the current document with this version? Your current '
+                                              'state is saved as a version first, and Undo brings it back.', parent=self):
+                self._restore_version(item['id'])
+                reload()
+        def compare():
+            item = selected()
+            out = Path(tempfile.mkdtemp()) / 'version-diff.html'
+            self.pdf.compare(str(version_file(self.path, item['id'])), str(out))
+            webbrowser.open(out.resolve().as_uri())
+        def delete():
+            item = selected()
+            delete_version(self.path, item['id'])
+            reload()
+        ttk.Button(saver, text='Save version', command=lambda: self.guard(save)).pack(side='left', padx=(8, 0))
+        tree.pack(fill='both', expand=True, pady=(4, 8))
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill='x')
+        ttk.Button(buttons, text='Compare with current', command=lambda: self.guard(compare)).pack(side='left')
+        ttk.Button(buttons, text='Restore', command=lambda: self.guard(restore)).pack(side='left', padx=6)
+        ttk.Button(buttons, text='Delete', command=lambda: self.guard(delete)).pack(side='left')
+        ttk.Button(buttons, text='Close', command=window.destroy).pack(side='right')
+        reload()
+        window.grab_set()
 
     def from_images(self):
         paths = fd.askopenfilenames(filetypes=[('Images', '*.png *.jpg *.jpeg *.tif *.tiff')])

@@ -548,6 +548,49 @@ def exercise_app(app):
     assert 'DOC-000002' in app.pdf.doc[1].get_text(), 'Bates sequence did not advance'
     print('Headers/footers with tokens and Bates numbering passed.')
 
+    # Version history: snapshot, list and restore, with history stored in a temp dir.
+    from tkinter import messagebox as _mb
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    app.pdf.doc[0].insert_text((60, 100), 'Version one', fontsize=14)
+    app.refresh()
+    app.update()
+    with tempfile.TemporaryDirectory() as folder:
+        _os.environ['OPENPDF_HISTORY_DIR'] = str(Path(folder) / 'history')
+        try:
+            doc_path = str(Path(folder) / 'doc.pdf')
+            app.pdf.save(doc_path)
+            app.path = doc_path
+            app.version_history()
+            app.update()
+            dlg = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+            [w for w in descendants(dlg) if w.winfo_class() == 'TEntry'][0].insert(0, 'first snapshot')
+            next(w for w in descendants(dlg) if w.winfo_class() == 'TButton' and w.cget('text') == 'Save version').invoke()
+            app.update()
+            tree = next(w for w in descendants(dlg) if w.winfo_class() == 'Treeview')
+            rows = tree.get_children()
+            assert len(rows) == 1, 'Saved version was not listed'
+            app.pdf.doc[0].insert_text((60, 160), 'Version two edit', fontsize=14)
+            app.refresh()
+            app.update()
+            assert app.pdf.doc[0].search_for('Version two edit'), 'Edit was not applied'
+            tree.selection_set(rows[0])
+            tree.focus(rows[0])
+            with patch.object(_mb, 'askyesno', return_value=True):
+                next(w for w in descendants(dlg) if w.winfo_class() == 'TButton' and w.cget('text') == 'Restore').invoke()
+                app.update()
+            assert not app.pdf.doc[0].search_for('Version two edit'), 'Restore did not revert the edit'
+            assert app.pdf.doc[0].search_for('Version one'), 'Restore lost the snapshot content'
+        finally:
+            _os.environ.pop('OPENPDF_HISTORY_DIR', None)
+            for child in app.winfo_children():
+                if isinstance(child, tk.Toplevel):
+                    child.destroy()
+    print('Version history: snapshot, list and restore passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui
