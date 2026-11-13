@@ -209,6 +209,15 @@ class PDF:
             serialization.BestAvailableEncryption(password.encode()))
         Path(path).write_bytes(data)
 
+    def is_signed(self):
+        # True if the document carries an applied certificate signature. Editing
+        # and re-saving in OpenPDF rewrites the file and would remove it.
+        for page in self.doc:
+            for widget in (page.widgets() or []):
+                if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE and getattr(widget, 'is_signed', False):
+                    return True
+        return False
+
     def sign(self, output_path, pkcs12_path, password, field_name='Signature1', reason='', location=''):
         from pyhanko.sign import signers
         from pyhanko.sign.signers import SimpleSigner
@@ -231,11 +240,16 @@ class PDF:
         # would change the file and break every signature's byte range. Reports
         # integrity and signer; trust (chain to a CA) is not asserted, so
         # self-signed IDs read as valid-but-untrusted.
+        import logging
         from pyhanko.pdf_utils.reader import PdfFileReader
         from pyhanko.sign.validation import validate_pdf_signature
         from pyhanko.sign.validation.status import SignatureCoverageLevel
         from pyhanko_certvalidator import ValidationContext
-        context = ValidationContext(allow_fetching=False)
+        # Self-signed IDs can't chain to a CA; that's expected here, so keep the
+        # library's trust-path failures out of the console.
+        for logger in ('pyhanko', 'pyhanko_certvalidator'):
+            logging.getLogger(logger).setLevel(logging.CRITICAL)
+        context = ValidationContext(trust_roots=[], allow_fetching=False)
         results = []
         reader = PdfFileReader(io.BytesIO(data))
         for sig in reader.embedded_signatures:

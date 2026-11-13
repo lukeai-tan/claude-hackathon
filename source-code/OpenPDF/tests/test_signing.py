@@ -48,6 +48,20 @@ class SigningTests(unittest.TestCase):
         finally:
             signed_pdf.close()
 
+    def test_is_signed_detects_applied_signature(self):
+        self.assertFalse(self.pdf.is_signed())
+        # an unsigned signature *field* is not a signature
+        self.pdf.add_field(0, fitz.Rect(50, 300, 250, 340), 'sig', 'signature')
+        self.assertFalse(self.pdf.is_signed())
+        pkcs12 = self.make_id()
+        signed = self.root / 'signed.pdf'
+        self.pdf.sign(signed, pkcs12, 'idpw')
+        signed_pdf = PDF(signed)
+        try:
+            self.assertTrue(signed_pdf.is_signed())
+        finally:
+            signed_pdf.close()
+
     def test_wrong_password_is_rejected(self):
         pkcs12 = self.make_id()
         with self.assertRaises(ValueError):

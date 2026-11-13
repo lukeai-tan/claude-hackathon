@@ -161,6 +161,12 @@ class App(tk.Tk):
 
     def save(self):
         self.require()
+        if self.pdf.is_signed() and not mb.askyesno(
+                'Signed document',
+                'This PDF has a digital signature. Saving a new copy here rewrites the '
+                'file and removes that signature. Sign as the last step instead. Continue?',
+                parent=self):
+            return
         path = self.output('.pdf')
         if path:
             self.pdf.save(path)
