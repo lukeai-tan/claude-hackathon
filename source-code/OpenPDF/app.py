@@ -134,6 +134,7 @@ class App(tk.Tk):
             self.pdf.close()
         self.pdf, self.path = loaded, path
         self.history, self.redo_history, self.index, self.dirty = [], [], 0, False
+        self.signed_edit_warned = False
         self.search_query = ''
         self.refresh()
         self.status.set(f'Opened {Path(path).name}. Drag to select text; switch to Select area for placement/cropping.')
@@ -153,6 +154,7 @@ class App(tk.Tk):
         self.pdf = PDF()
         self.pdf.doc.new_page()
         self.path, self.history, self.redo_history, self.index, self.dirty = None, [], [], 0, True
+        self.signed_edit_warned = False
         self.search_query = ''
         self.refresh()
 
@@ -177,6 +179,12 @@ class App(tk.Tk):
 
     def change(self, operation, message='Updated document. Save as to export.', dirty_pages=None):
         self.require()
+        if not getattr(self, 'signed_edit_warned', False) and self.pdf.is_signed():
+            self.signed_edit_warned = True
+            mb.showwarning('Signed document',
+                           'This PDF is digitally signed. Editing it here invalidates the '
+                           'signature; saving writes an unsigned copy. Sign as the last step.',
+                           parent=self)
         before = self.pdf.bytes()
         try:
             operation()
