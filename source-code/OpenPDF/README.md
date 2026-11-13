@@ -126,6 +126,7 @@ you leave it blank one is generated so the restrictions cannot be lifted.
 | Replace existing text | One selected match; embedded font, size, colour and baseline preserved; transparent text removal preserves background; no paragraph reflow |
 | Highlight, text markup, comments, shapes, stamps | Highlight plus strikethrough / underline / squiggly over selected text; sticky notes, free-text callouts, line / arrow / rectangle / oval shapes, Adobe-style rubber stamps, and hyperlinks. A comment list navigates to and deletes any annotation. Text markup needs selected text; notes, shapes and stamps use area selection. All survive save/reopen |
 | Visual signatures | Draw and embed; not cryptographic certificate signatures |
+| Certificate (digital) signatures | Generate a self-signed digital ID (.p12), sign documents with a visible signature field, and verify signatures (signer, unchanged-since-signing, cryptographic validity) via pyHanko. Works offline; self-signed IDs are valid but not chained to a trusted authority. Timestamp/LTV not yet |
 | Freehand pen | Live mouse scribbling, colour/thickness, printable PDF ink, stroke undo/redo |
 | Create / fill forms | Text, checkbox, dropdown, list box and signature fields; fill dialog; import/export form data as XFDF (readable by OpenPDF or Acrobat). Radio-button groups and field auto-detection are not implemented yet; no XFA |
 | Redaction | Removes intersecting text, image pixels, and graphics; cleaned full export required |
@@ -141,7 +142,7 @@ you leave it blank one is generated so the restrictions cannot be lifted.
 | Watermarks, numbering, headers/footers, Bates, bookmarks, metadata | Implemented. Headers/footers use left/centre/right slots with `<page>` `<pages>` `<date>` `<filename>` tokens; Bates numbering supports prefix/suffix, start number, zero-padding, position, and a sequence that continues across documents |
 | Search | Searches text on all pages; OCR needed for scans |
 | Remote signature delivery/identity/audit service | Not implemented |
-| Certificate signatures, real-time cloud collaboration | Not implemented |
+| Real-time cloud collaboration | Not implemented |
 | Exact Word reconstruction, arbitrary paragraph editing | Not implemented |
 | Accessibility remediation, PDF/A conformance validation, AI assistant | Not implemented |
 

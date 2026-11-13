@@ -548,6 +548,57 @@ def exercise_app(app):
     assert 'DOC-000002' in app.pdf.doc[1].get_text(), 'Bates sequence did not advance'
     print('Headers/footers with tokens and Bates numbering passed.')
 
+    # Certificate signing: create a digital ID, sign, and verify end to end.
+    from tkinter import filedialog as _fd
+    from core import PDF
+    for child in app.winfo_children():
+        if isinstance(child, tk.Toplevel):
+            child.destroy()
+    app.dirty = False
+    app.new()
+    app.pdf.doc[0].insert_text((60, 100), 'Agreement', fontsize=14)
+    app.refresh()
+    app.update()
+    with tempfile.TemporaryDirectory() as folder:
+        id_path = str(Path(folder) / 'id.p12')
+        signed = str(Path(folder) / 'signed.pdf')
+        with patch.object(_fd, 'asksaveasfilename', return_value=id_path):
+            app.create_digital_id()
+            app.update()
+            dlg = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+            id_entries = [w for w in descendants(dlg) if w.winfo_class() == 'TEntry']
+            id_entries[0].insert(0, 'Grace Hopper')  # name
+            id_entries[2].insert(0, 'idpw')           # password (entries[1] is organisation)
+            next(w for w in descendants(dlg) if w.winfo_class() == 'TButton' and w.cget('text') == 'Create').invoke()
+            app.update()
+        assert _os.path.exists(id_path), 'Digital ID was not created'
+        original_output = app.output
+        with patch.object(_fd, 'askopenfilename', return_value=id_path):
+            app.output = lambda ext: signed
+            try:
+                app.sign_document()
+                app.update()
+                dlg = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+                [w for w in descendants(dlg) if w.winfo_class() == 'TEntry'][0].insert(0, 'idpw')  # ID password
+                next(w for w in descendants(dlg) if w.winfo_class() == 'TButton' and w.cget('text') == 'Sign').invoke()
+                app.update()
+            finally:
+                app.output = original_output
+        assert _os.path.exists(signed), 'Signed PDF was not written'
+        results = PDF.verify_signatures(open(signed, 'rb').read())
+        assert results and results[0]['signer'] == 'Grace Hopper' and results[0]['intact'] and results[0]['valid'], \
+            'Signed PDF did not verify'
+        app.path = signed
+        app.verify_document()
+        app.update()
+        vdlg = next(w for w in app.winfo_children() if isinstance(w, tk.Toplevel))
+        shown = ' '.join(w.cget('text') for w in descendants(vdlg) if w.winfo_class() == 'TLabel')
+        assert 'Grace Hopper' in shown and 'unchanged since signing' in shown, 'Verify dialog did not report the signature'
+        for child in app.winfo_children():
+            if isinstance(child, tk.Toplevel):
+                child.destroy()
+    print('Certificate signing: create ID, sign and verify passed.')
+
     from gui_performance import exercise_performance
     exercise_performance(app)
     from gui_ui_checks import exercise_ui

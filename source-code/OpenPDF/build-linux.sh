@@ -7,6 +7,7 @@ python3 -m unittest discover -s tests -v
 # Pillow's Tk bridge is imported dynamically on Linux; PyInstaller misses it.
 python3 -m PyInstaller --noconfirm --clean --onefile --windowed --name OpenPDF \
   --collect-all pymupdf --collect-all pdf2docx --collect-submodules fontTools.ttLib.tables \
+  --collect-all pyhanko --collect-all pyhanko_certvalidator --collect-all asn1crypto \
   --hidden-import PIL._tkinter_finder \
   --add-data 'LICENSE:.' --add-data 'THIRD_PARTY.md:.' app.py
 if ! command -v tesseract >/dev/null; then
