@@ -20,7 +20,7 @@ npm run desktop:build
 
 Files are written to `release/`. `npm run desktop:preview` launches a previously built desktop renderer. Windows builds are unsigned. The release workflow runs unit, browser and packaged launch checks before publishing a release.
 
-The creation sidebar adds 38 original elements, favourites and recents; 20 theme presets and saved themes; 19 offline font families and six pairings; 12 original templates; and reusable design agents with configurable instructions and permitted tools. Click or drag an element onto a slide. Open Properties for precise controls. Slide reordering is in the bottom filmstrip.
+The creation sidebar adds 38 original elements, favourites and recents; 20 theme presets and saved themes; 19 offline font families and six pairings; 12 original templates; and reusable design agents with configurable instructions and permitted tools. Click or drag an element onto a slide. Open Properties for precise controls. Slide reordering is in the bottom filmstrip. **History** (top bar) saves named snapshots of a deck you can restore or compare: the diff lists added, removed, moved and changed slides, with per-element and text changes. Snapshots stay on this device.
 
 Open **Ask Claudia → settings** to enter an Anthropic API key. Defaults match `claude-opus-5-5` and API version `2026-10-21`. Model, version and output limit are configurable. Keys are never included in deck files, exported agents, repository code or release binaries. The browser holds a key for the current session. Desktop can optionally save it with OS encryption, or read `ANTHROPIC_API_KEY` at launch. Forget key removes the saved copy.
 

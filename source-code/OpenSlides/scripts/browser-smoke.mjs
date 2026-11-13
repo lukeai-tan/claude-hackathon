@@ -66,9 +66,26 @@ try{
  });assert.ok(exports.bytes>5000);assert.ok(exports.media>=2);assert.equal(exports.slides,1);assert.equal(exports.injected,false);
  await page.evaluate(async()=>{const {mutate,useEditor}=await import('/src/store/editor.ts');const {createFromTemplate}=await import('/src/model/templates.ts');const d=createFromTemplate('creative');mutate(deck=>{deck.title=d.title;deck.theme=d.theme;deck.layouts=d.layouts;deck.slides=d.slides;});useEditor.setState({slideId:d.slides[0].id,selection:[]});});
  await page.screenshot({path:'studio-smoke.png',fullPage:true});
- for(const [tab,file] of [['Themes','themes'],['Text','text'],['Ask Claudia','ai'],['Agents','agents']]){await rail.getByRole('button',{name:tab,exact:true}).click();await page.screenshot({path:`studio-${file}.png`,fullPage:true});}
+ const history=await page.evaluate(async()=>{
+  const storage=await import('/src/store/storage.ts');const {diffDecks}=await import('/src/model/diff.ts');
+  const {useEditor,openDeck,mutate}=await import('/src/store/editor.ts');
+  const deck=useEditor.getState().deck,titleBefore=deck.title;
+  const v=await storage.saveVersion(deck,'smoke snapshot');
+  mutate(d=>{d.title='Changed for history test';});
+  const diff=diffDecks(v.deck,useEditor.getState().deck);
+  const listed=(await storage.listVersions(deck.id)).some(x=>x.id===v.id);
+  openDeck({...structuredClone(v.deck),updatedAt:Date.now()});
+  const restoredTitle=useEditor.getState().deck.title;
+  await storage.deleteVersion(deck.id,v.id);
+  const deleted=!(await storage.listVersions(deck.id)).some(x=>x.id===v.id);
+  return {listed,titleChanged:!!diff.titleChange,restoredTitle,titleBefore,deleted};
+ });
+ assert.ok(history.listed,'saved version is listed');
+ assert.ok(history.titleChanged,'diff detected the edit after the snapshot');
+ assert.equal(history.restoredTitle,history.titleBefore,'restore brought back the snapshot');
+ assert.ok(history.deleted,'deleting a version removes it');
  await page.setViewportSize({width:1024,height:768});
  const exportButton=page.getByRole('button',{name:'Export',exact:false}).first();const presentButton=page.getByRole('button',{name:'Present',exact:true});
  for(const button of [exportButton,presentButton]){const b=await button.boundingBox();assert.ok(b&&b.x>=0&&b.x+b.width<=1024,'Primary action is outside laptop viewport');}
- assert.deepEqual(errors,[]);console.log('Browser smoke passed: galleries, themes, agents, mocked Claudia request, saved elements, atomic undo, stale proposal guard, SVG rejection, every template.');
+ assert.deepEqual(errors,[]);console.log('Browser smoke passed: galleries, themes, agents, mocked Claudia request, saved elements, atomic undo, stale proposal guard, SVG rejection, version history save/diff/restore, every template.');
 }catch(error){await page.screenshot({path:'studio-smoke.png',fullPage:true});throw error;}finally{await browser.close();}

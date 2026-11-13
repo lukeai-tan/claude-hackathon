@@ -2404,3 +2404,58 @@ kbd {
 .stage .el-ph-empty {
   outline: calc(1.5px / var(--scale)) dashed rgba(127, 127, 127, 0.55);
 }
+
+/* Version history dialog */
+.version-save {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+.version-save input {
+  flex: 1;
+}
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.version-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--line, #e5e5e5);
+}
+.version-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.version-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.version-diff {
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 8px 0 16px;
+}
+.vd-slide {
+  padding: 8px 0;
+  border-top: 1px solid var(--line, #e5e5e5);
+}
+.vd-slide ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

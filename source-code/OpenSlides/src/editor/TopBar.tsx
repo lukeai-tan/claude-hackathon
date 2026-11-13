@@ -12,6 +12,7 @@ import {
   Heading,
   ImagePlus,
   Keyboard,
+  History,
   LayoutTemplate,
   MonitorPlay,
   Play,
@@ -264,6 +265,10 @@ export function TopBar() {
           <LayoutTemplate size={17} /> <span>Layouts</span>
         </button>
       )}
+
+      <button className="tb-btn" onClick={() => useEditor.setState({ dialog: 'versions' })} title="Save, restore and compare versions of this deck">
+        <History size={17} /> <span>History</span>
+      </button>
 
       <button className={`tb-btn check-btn${errors ? ' has-errors' : ''}`} onClick={() => useEditor.setState({ panel: 'check', inspectorOpen: true })} title="Check the deck for readability problems">
         <Stethoscope size={17} />
