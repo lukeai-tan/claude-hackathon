@@ -137,6 +137,7 @@ you leave it blank one is generated so the restrictions cannot be lifted.
 | Images to PDF | Implemented |
 | Office to PDF | Requires separately installed LibreOffice |
 | Document comparison | Text diff HTML; image/layout differences not detected |
+| Version history | Save named snapshots of a saved document, restore any (the current state is snapshotted first, and Undo reverses a restore), and compare a snapshot with the current document via the text diff. Snapshots are stored per-user on this computer; requires the document to be saved first |
 | Optimize / compression / batch | Optimize dialog downsamples and recompresses images (lossy; adjustable DPI and JPEG quality), subsets fonts and can strip metadata, with a before/after size estimate and output to a new file; plus lossless stream compression and multi-file batch compression |
 | Watermarks, numbering, headers/footers, Bates, bookmarks, metadata | Implemented. Headers/footers use left/centre/right slots with `<page>` `<pages>` `<date>` `<filename>` tokens; Bates numbering supports prefix/suffix, start number, zero-padding, position, and a sequence that continues across documents |
 | Search | Searches text on all pages; OCR needed for scans |
