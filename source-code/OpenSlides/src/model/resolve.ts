@@ -70,7 +70,7 @@ export function applyTokens(html: string, ctx: TokenContext): string {
     .replace(/\{\{n\}\}/g, String(ctx.n))
     .replace(/\{\{total\}\}/g, String(ctx.total))
     .replace(/\{\{date\}\}/g, date)
-    .replace(/\{\{title\}\}/g, ctx.title.replace(/</g, '&lt;'));
+    .replace(/\{\{title\}\}/g, () => ctx.title.replace(/</g, '&lt;'));
 }
 
 export function slideTitle(deck: Deck, slide: Slide): string {
